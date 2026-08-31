@@ -135,10 +135,40 @@
 
   .recipe-link {
     background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
-    padding: 12px; margin-bottom: 6px; font-weight: 600; cursor: pointer;
-    text-transform: capitalize;
+    padding: 12px; margin-bottom: 6px; cursor: pointer;
   }
-  #recipe-view pre { white-space: pre-wrap; font: 14px/1.55 inherit; }
+  .recipe-link .t { font-weight: 700; font-size: 15px; }
+  .recipe-link .m { color: var(--muted); font-size: 12.5px; }
+  #recipe-body h2 { font-size: 20px; margin: 14px 0 2px; letter-spacing: -0.01em; }
+  #recipe-body .meta { color: var(--muted); font-size: 13px; margin-bottom: 4px; }
+  .rsec {
+    font-size: 12px; text-transform: uppercase; letter-spacing: .07em;
+    color: var(--muted); font-weight: 700; margin: 18px 2px 6px;
+  }
+  .ing {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+    padding: 8px 10px; margin-bottom: 5px; font-size: 14px;
+  }
+  .ing .top { display: flex; align-items: baseline; gap: 8px; }
+  .ing .mark { flex: none; font-weight: 800; }
+  .ing.have .mark { color: var(--accent); }
+  .ing.need .mark { color: var(--flag); }
+  .ing .nm { font-weight: 600; flex: 1; }
+  .ing .q { color: var(--muted); font-size: 13px; white-space: nowrap; }
+  .ing .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .ing .sub a { color: var(--accent); font-weight: 600; text-decoration: none; }
+  .ing .logbtn {
+    background: none; border: none; color: var(--accent); font-size: 12px;
+    font-weight: 700; padding: 2px 0 0; cursor: pointer;
+  }
+  .steps { padding-left: 22px; margin: 4px 0; }
+  .steps li { margin-bottom: 10px; font-size: 14.5px; }
+  .whys { padding-left: 18px; margin: 4px 0; color: var(--muted); font-size: 13.5px; }
+  .whys li { margin-bottom: 4px; }
+  #ai-out {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px; font-size: 14px; white-space: pre-wrap; margin-top: 8px;
+  }
 
   #overlay {
     position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 10;
@@ -222,7 +252,7 @@
     <div id="recipe-list"><div class="empty">Loading…</div></div>
     <div id="recipe-view" hidden>
       <button class="btn" id="recipe-back">← All recipes</button>
-      <pre id="recipe-body"></pre>
+      <div id="recipe-body"></div>
     </div>
   </section>
 
@@ -239,6 +269,16 @@
       <button class="btn" id="token-clear">Clear</button>
     </div>
     <div id="settings-status" class="muted" style="margin-top:8px"></div>
+    <hr style="border:none;border-top:1px solid var(--line);margin:18px 0">
+    <label class="lbl" for="ai-key">Anthropic API key (optional — powers "Ask Claude" on recipes)</label>
+    <input type="password" id="ai-key" placeholder="sk-ant-…" autocomplete="off">
+    <p class="muted">Get one at console.anthropic.com → API keys. Pay-per-use on
+      your Anthropic account (a product question costs a few cents). Stays on
+      this phone only.</p>
+    <div class="row">
+      <button class="btn primary" id="ai-key-save">Save key</button>
+      <button class="btn" id="ai-key-clear">Clear</button>
+    </div>
     <hr style="border:none;border-top:1px solid var(--line);margin:18px 0">
     <p class="muted">Data lives in the private <strong>Kitchen</strong> repo
       (<code>data/inventory.json</code>). You, Claude, and this app all edit the
@@ -611,38 +651,270 @@
     schedulePush(); renderAll();
   };
 
+  // ---------- Recipes ----------
   var recipesLoaded = false;
+  var products = {}, productsSha = null;
+  var currentRecipe = null;
+  var aiKey = "";
+  try { aiKey = localStorage.getItem("anthropic-key") || ""; } catch (e) {}
+
+  function ghGetJson(path) {
+    return fetch(API + "/repos/" + REPO + "/contents/" + path + "?ref=" + encodeURIComponent(BRANCH) + "&t=" + Date.now(),
+      { headers: ghHeaders(), cache: "no-store" })
+      .then(function (r) { if (!r.ok) throw new Error("http" + r.status); return r.json(); })
+      .then(function (j) { return { obj: JSON.parse(b64decode(j.content)), sha: j.sha }; });
+  }
+  function ghPutJson(path, obj, sha, message) {
+    return fetch(API + "/repos/" + REPO + "/contents/" + path, {
+      method: "PUT", headers: ghHeaders(),
+      body: JSON.stringify({
+        message: message, branch: BRANCH, sha: sha,
+        content: b64encode(JSON.stringify(obj, null, 2) + "\n")
+      })
+    }).then(function (r) { if (!r.ok) throw new Error("http" + r.status); return r.json(); });
+  }
+  function loadProducts() {
+    return ghGetJson("data/products.json")
+      .then(function (res) { products = res.obj || {}; productsSha = res.sha; })
+      .catch(function () { products = products || {}; });
+  }
+  function saveProducts() {
+    return ghPutJson("data/products.json", products, productsSha, "app: log product used")
+      .then(function (j) { if (j.content) productsSha = j.content.sha; })
+      .catch(function () { toast("Couldn't save product log"); });
+  }
+
   function loadRecipes() {
     var list = document.getElementById("recipe-list");
     if (!token) { list.innerHTML = '<div class="empty">Add your GitHub token in Setup first.</div>'; return; }
+    loadProducts();
     fetch(API + "/repos/" + REPO + "/contents/recipes?ref=" + encodeURIComponent(BRANCH), { headers: ghHeaders() })
       .then(function (r) { return r.ok ? r.json() : []; })
       .then(function (files) {
         recipesLoaded = true;
         list.innerHTML = "";
-        var mds = (files || []).filter(function (f) { return f.name && f.name.endsWith(".md"); });
-        if (!mds.length) { list.innerHTML = '<div class="empty">No recipes saved yet — ask Claude for one.</div>'; return; }
-        mds.forEach(function (f) {
-          var el = document.createElement("div"); el.className = "recipe-link";
-          el.textContent = f.name.replace(/\.md$/, "").replace(/-/g, " ");
-          el.onclick = function () { openRecipe(f.path); };
-          list.appendChild(el);
+        var jsons = (files || []).filter(function (f) { return f.name && f.name.endsWith(".json"); });
+        if (!jsons.length) { list.innerHTML = '<div class="empty">No recipes saved yet — ask Claude for one.</div>'; return; }
+        jsons.forEach(function (f) {
+          ghGetJson(f.path).then(function (res) {
+            var r = res.obj;
+            var el = document.createElement("div"); el.className = "recipe-link";
+            var t = document.createElement("div"); t.className = "t"; t.textContent = r.title || f.name;
+            var m = document.createElement("div"); m.className = "m";
+            m.textContent = [r.serves ? "serves " + r.serves : "", r.time || ""].filter(Boolean).join(" · ");
+            el.append(t, m);
+            el.onclick = function () { openRecipe(r); };
+            list.appendChild(el);
+          }).catch(function () {});
         });
       })
       .catch(function () { list.innerHTML = '<div class="empty">Couldn\'t load recipes.</div>'; });
   }
-  function openRecipe(path) {
-    fetch(API + "/repos/" + REPO + "/contents/" + path + "?ref=" + encodeURIComponent(BRANCH), { headers: ghHeaders() })
-      .then(function (r) { return r.json(); })
-      .then(function (j) {
-        document.getElementById("recipe-list").hidden = true;
-        var v = document.getElementById("recipe-view"); v.hidden = false;
-        document.getElementById("recipe-body").textContent = b64decode(j.content);
-      });
+
+  function findMatch(ing) {
+    var kws = ing.match || [ing.item.toLowerCase()];
+    for (var i = 0; i < data.items.length; i++) {
+      var nm = (data.items[i].name || "").toLowerCase();
+      for (var k = 0; k < kws.length; k++) {
+        if (nm.indexOf(kws[k].toLowerCase()) !== -1) return data.items[i];
+      }
+    }
+    return null;
   }
+
+  function lastProduct(ing) {
+    var hist = products[ing.item.toLowerCase()];
+    return (hist && hist.length) ? hist[hist.length - 1] : null;
+  }
+
+  function openRecipe(r) {
+    currentRecipe = r;
+    document.getElementById("recipe-list").hidden = true;
+    document.getElementById("recipe-view").hidden = false;
+    renderRecipe();
+    window.scrollTo({ top: 0 });
+  }
+
+  function renderRecipe() {
+    var r = currentRecipe;
+    var body = document.getElementById("recipe-body");
+    body.innerHTML = "";
+    function el(tag, cls, text) {
+      var e = document.createElement(tag);
+      if (cls) e.className = cls;
+      if (text != null) e.textContent = text;
+      return e;
+    }
+    body.appendChild(el("h2", null, r.title));
+    body.appendChild(el("div", "meta",
+      [r.serves ? "Serves " + r.serves : "", r.time || "", r.source || ""].filter(Boolean).join(" · ")));
+
+    var needed = [];
+    body.appendChild(el("div", "rsec", "Ingredients"));
+    (r.ingredients || []).forEach(function (ing) {
+      var m = findMatch(ing);
+      var have = !!m;
+      if (!have && !ing.optional) needed.push(ing);
+      var row = el("div", "ing " + (have ? "have" : "need"));
+      var top = el("div", "top");
+      top.appendChild(el("span", "mark", have ? "✓" : "•"));
+      top.appendChild(el("span", "nm", ing.item + (ing.optional ? " (optional)" : "")));
+      top.appendChild(el("span", "q", ing.qty || ""));
+      row.appendChild(top);
+      var subBits = [];
+      if (have) subBits.push("have: " + m.name + (m.full && m.full !== "unopened" ? " (" + m.full + ")" : ""));
+      else if (ing.pantry) subBits.push("staple — check your stock");
+      if (ing.note) subBits.push(ing.note);
+      var lp = lastProduct(ing);
+      if (lp) subBits.push("last time: " + lp.product + (lp.size ? " " + lp.size : ""));
+      if (subBits.length) row.appendChild(el("div", "sub", subBits.join(" · ")));
+      var log = el("button", "logbtn", "log product used");
+      log.onclick = function () {
+        var def = have ? m.name : (lp ? lp.product : "");
+        var v = window.prompt("Exact product used for \"" + ing.item + "\":", def);
+        if (!v) return;
+        var key = ing.item.toLowerCase();
+        products[key] = products[key] || [];
+        products[key].push({ product: v.trim(), date: new Date().toISOString().slice(0, 10), recipe: r.slug || r.title });
+        saveProducts().then(function () { toast("Logged"); renderRecipe(); });
+      };
+      row.appendChild(log);
+      body.appendChild(row);
+    });
+
+    if (needed.length) {
+      body.appendChild(el("div", "rsec", "Need from Wegmans (" + needed.length + ")"));
+      needed.forEach(function (ing) {
+        var row = el("div", "ing need");
+        var top = el("div", "top");
+        top.appendChild(el("span", "mark", "🛒"));
+        top.appendChild(el("span", "nm", ing.item));
+        top.appendChild(el("span", "q", ing.qty || ""));
+        row.appendChild(top);
+        var sub = el("div", "sub");
+        var a = document.createElement("a");
+        a.href = "https://www.instacart.com/store/wegmans/s?k=" + encodeURIComponent(ing.item);
+        a.target = "_blank"; a.rel = "noopener"; a.textContent = "find on Instacart →";
+        sub.appendChild(a);
+        row.appendChild(sub);
+        body.appendChild(row);
+      });
+      var addBtn = el("button", "btn primary", "Add all " + needed.length + " to shopping list");
+      addBtn.style.width = "100%"; addBtn.style.marginTop = "4px";
+      addBtn.onclick = function () {
+        var added = 0;
+        needed.forEach(function (ing) {
+          var dup = data.shopping.some(function (s) { return s.name.toLowerCase() === ing.item.toLowerCase(); });
+          if (!dup) { data.shopping.push({ name: ing.item, reason: "for " + r.title }); added++; }
+        });
+        if (added) { schedulePush(); renderShopping(); }
+        toast(added ? "Added " + added + " to shopping list" : "Already on the list");
+      };
+      body.appendChild(addBtn);
+    } else {
+      body.appendChild(el("div", "rsec", "You have everything ✓"));
+    }
+
+    body.appendChild(el("div", "rsec", "Steps"));
+    var ol = el("ol", "steps");
+    (r.steps || []).forEach(function (s) { ol.appendChild(el("li", null, s)); });
+    body.appendChild(ol);
+
+    if (r.why && r.why.length) {
+      body.appendChild(el("div", "rsec", "Why it works"));
+      var ul = el("ul", "whys");
+      r.why.forEach(function (w) { ul.appendChild(el("li", null, w)); });
+      body.appendChild(ul);
+    }
+    if (r.yield) { body.appendChild(el("div", "rsec", "Yield")); body.appendChild(el("div", "meta", r.yield)); }
+    if (r.reheat) { body.appendChild(el("div", "rsec", "Reheating")); body.appendChild(el("div", "meta", r.reheat)); }
+    if (r.scaling) { body.appendChild(el("div", "rsec", "Scaling")); body.appendChild(el("div", "meta", r.scaling)); }
+
+    body.appendChild(el("div", "rsec", "Ask Claude"));
+    var aiBtn = el("button", "btn", "🤖 Which exact products should I buy / use?");
+    aiBtn.style.width = "100%";
+    var aiOut = el("div"); aiOut.id = "ai-out"; aiOut.hidden = true;
+    aiBtn.onclick = function () {
+      if (!aiKey) { aiOut.hidden = false; aiOut.textContent = "Add your Anthropic API key in the Setup tab first."; return; }
+      aiOut.hidden = false; aiOut.textContent = "Thinking…"; aiBtn.disabled = true;
+      askClaude(r, needed).then(function (text) {
+        aiOut.textContent = text; aiBtn.disabled = false;
+      }).catch(function (e) {
+        aiOut.textContent = "Request failed: " + (e && e.message || e); aiBtn.disabled = false;
+      });
+    };
+    body.append(aiBtn, aiOut);
+  }
+
+  function askClaude(r, needed) {
+    var profileP = fetch(API + "/repos/" + REPO + "/contents/cooking-profile.md?ref=" + encodeURIComponent(BRANCH),
+      { headers: ghHeaders() })
+      .then(function (x) { return x.ok ? x.json() : null; })
+      .then(function (j) { return j ? b64decode(j.content) : ""; })
+      .catch(function () { return ""; });
+    return profileP.then(function (profile) {
+      var invLines = data.items.map(function (it) {
+        return "- " + it.name + (it.size ? " (" + it.size + ")" : "") + " [" + (it.full || "?") + " full, " + (it.cat || "") + "]";
+      }).join("\n");
+      var prodLines = Object.keys(products).map(function (k) {
+        var last = products[k][products[k].length - 1];
+        return "- " + k + ": " + last.product;
+      }).join("\n");
+      var userMsg =
+        "MY COOKING PROFILE:\n" + profile.slice(0, 6000) +
+        "\n\nMY CURRENT KITCHEN INVENTORY:\n" + invLines +
+        "\n\nPRODUCTS I'VE USED BEFORE:\n" + (prodLines || "(none logged yet)") +
+        "\n\nRECIPE: " + r.title + "\nIngredients:\n" +
+        (r.ingredients || []).map(function (i) { return "- " + i.item + " — " + (i.qty || "") + (i.note ? " (" + i.note + ")" : ""); }).join("\n") +
+        "\n\nMISSING (not matched in my inventory):\n" +
+        (needed.length ? needed.map(function (i) { return "- " + i.item; }).join("\n") : "(nothing — I have everything)") +
+        "\n\nFor each missing ingredient, tell me the exact Wegmans product to buy (name it like a Wegmans search phrase, with size). For ingredients I have, flag any where what I own is a poor fit or where a substitute from my stock works. Follow my priorities: accuracy > authenticity > gourmet > price. Be concise — a short line per ingredient.";
+      return fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": aiKey,
+          "anthropic-version": "2023-06-01",
+          "anthropic-beta": "server-side-fallback-2026-07-01",
+          "anthropic-dangerous-direct-browser-access": "true"
+        },
+        body: JSON.stringify({
+          model: "claude-opus-5",
+          max_tokens: 2000,
+          fallbacks: "default",
+          system: "You are the product-picking assistant for Conner's kitchen app. Recommend exact Wegmans products for recipe ingredients based on his cooking profile, current inventory, and product history. Concise, concrete, no preamble.",
+          messages: [{ role: "user", content: userMsg }]
+        })
+      }).then(function (resp) {
+        if (resp.status === 401) throw new Error("bad API key");
+        if (resp.status === 429) throw new Error("rate limited — try again in a minute");
+        if (!resp.ok) return resp.json().then(function (j) {
+          throw new Error((j.error && j.error.message) || ("HTTP " + resp.status));
+        });
+        return resp.json();
+      }).then(function (msg) {
+        if (msg.stop_reason === "refusal") return "Claude declined this request. Try rephrasing.";
+        return (msg.content || []).filter(function (b) { return b.type === "text"; })
+          .map(function (b) { return b.text; }).join("\n") || "(empty response)";
+      });
+    });
+  }
+
   document.getElementById("recipe-back").onclick = function () {
     document.getElementById("recipe-view").hidden = true;
     document.getElementById("recipe-list").hidden = false;
+  };
+
+  var aiKeyInput = document.getElementById("ai-key");
+  if (aiKey) aiKeyInput.value = aiKey;
+  document.getElementById("ai-key-save").onclick = function () {
+    aiKey = aiKeyInput.value.trim();
+    try { localStorage.setItem("anthropic-key", aiKey); } catch (e) {}
+    toast("API key saved");
+  };
+  document.getElementById("ai-key-clear").onclick = function () {
+    aiKey = ""; aiKeyInput.value = "";
+    try { localStorage.removeItem("anthropic-key"); } catch (e) {}
   };
 
   var tokenInput = document.getElementById("gh-token");
