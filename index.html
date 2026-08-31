@@ -128,6 +128,10 @@
   .shop-item .body { flex: 1; }
   .shop-item .reason { color: var(--muted); font-size: 12px; }
   .shop-item.done .body { text-decoration: line-through; opacity: .55; }
+  .shop-x {
+    background: none; border: none; color: var(--muted); font-size: 16px;
+    padding: 6px 8px; cursor: pointer; flex: none; line-height: 1;
+  }
 
   .recipe-link {
     background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
@@ -205,9 +209,13 @@
       <input type="text" id="shop-add-name" placeholder="Add to shopping list…">
       <button class="btn" id="shop-add-btn">Add</button>
     </div>
-    <button class="btn" id="shop-clear-done">Remove checked items</button>
-    <p class="muted">Claude adds things here when the inventory runs low; check
-      items off as you buy them, then scan them in.</p>
+    <div class="row">
+      <button class="btn primary" id="shop-bought" style="flex:1">✓ Bought — add to kitchen</button>
+      <button class="btn" id="shop-clear-done">Remove checked</button>
+    </div>
+    <p class="muted">Check items off as you buy them, then "Bought" moves them
+      into the kitchen inventory (or scan them in for full details). The ✕
+      dismisses an item without buying it.</p>
   </section>
 
   <section class="tab" id="tab-recipes">
@@ -558,7 +566,7 @@
     if (!data.shopping.length) {
       shopList.innerHTML = '<div class="empty">Shopping list is empty.</div>'; return;
     }
-    data.shopping.forEach(function (s) {
+    data.shopping.forEach(function (s, idx) {
       var el = document.createElement("div"); el.className = "shop-item" + (s.done ? " done" : "");
       var cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = !!s.done;
       cb.onchange = function () { s.done = cb.checked; schedulePush(); renderShopping(); };
@@ -566,7 +574,14 @@
       var nm = document.createElement("div"); nm.textContent = s.name;
       body.appendChild(nm);
       if (s.reason) { var r = document.createElement("div"); r.className = "reason"; r.textContent = s.reason; body.appendChild(r); }
-      el.append(cb, body);
+      var x = document.createElement("button");
+      x.className = "shop-x"; x.textContent = "✕";
+      x.setAttribute("aria-label", "Remove " + s.name + " from shopping list");
+      x.onclick = function () {
+        data.shopping.splice(idx, 1);
+        schedulePush(); renderShopping();
+      };
+      el.append(cb, body, x);
       shopList.appendChild(el);
     });
   }
@@ -581,6 +596,19 @@
   document.getElementById("shop-clear-done").onclick = function () {
     data.shopping = data.shopping.filter(function (s) { return !s.done; });
     schedulePush(); renderShopping();
+  };
+  document.getElementById("shop-bought").onclick = function () {
+    var bought = data.shopping.filter(function (s) { return s.done; });
+    if (!bought.length) return;
+    bought.forEach(function (s) {
+      var existing = data.items.find(function (it) {
+        return (it.name || "").toLowerCase() === s.name.toLowerCase();
+      });
+      if (existing) { existing.qty++; existing.full = "unopened"; }
+      else data.items.unshift(newItem({ name: s.name }));
+    });
+    data.shopping = data.shopping.filter(function (s) { return !s.done; });
+    schedulePush(); renderAll();
   };
 
   var recipesLoaded = false;
