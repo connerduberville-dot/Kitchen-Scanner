@@ -9,13 +9,13 @@
   :root {
     --bg: #FAF8F4; --surface: #FFFFFF; --ink: #1F1D1A; --muted: #6E675C;
     --line: #E6E1D7; --accent: #3E7A4E; --accent-ink: #FFFFFF;
-    --flag: #B4831F; --danger: #A8442E;
+    --flag: #B4831F; --danger: #A8442E; --chip: #EFEBE2; --chip-on: #DCEBDF;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #191816; --surface: #222019; --ink: #E8E4DC; --muted: #A29A8C;
       --line: #38352E; --accent: #6FAF7F; --accent-ink: #14211A;
-      --flag: #D4A94A; --danger: #D97B62;
+      --flag: #D4A94A; --danger: #D97B62; --chip: #2C2A24; --chip-on: #2E4433;
     }
   }
   * { box-sizing: border-box; }
@@ -55,7 +55,7 @@
   }
   .vf-toast.show { opacity: 1; }
   .row { display: flex; gap: 8px; margin: 10px 0; }
-  input[type="text"] {
+  input[type="text"], input[type="date"] {
     font: inherit; color: var(--ink); background: var(--surface);
     border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; width: 100%;
   }
@@ -71,22 +71,24 @@
   .empty { color: var(--muted); text-align: center; padding: 26px 12px; font-size: 14px; }
   .card {
     background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
-    padding: 10px 12px; display: grid; grid-template-columns: 1fr auto; gap: 6px 10px;
-    align-items: center;
+    padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; cursor: pointer;
   }
-  .card .code {
-    font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12.5px;
-    letter-spacing: .04em;
+  .card .top { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+  .card .title { font-weight: 600; font-size: 15px; }
+  .card .title.unknown { color: var(--flag); }
+  .card .qtytag { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .card .meta { color: var(--muted); font-size: 12.5px; display: flex; flex-wrap: wrap; gap: 4px 10px; }
+  .card .meta .exp { color: var(--flag); font-weight: 600; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chips button {
+    padding: 7px 12px; border-radius: 999px; background: var(--chip);
+    border-color: transparent; font-size: 13.5px; font-weight: 500;
   }
-  .card input.name { padding: 7px 10px; font-size: 15px; }
-  .qty { display: flex; align-items: center; gap: 2px; }
-  .qty button { width: 38px; height: 38px; padding: 0; border-radius: 10px; font-size: 18px; line-height: 1; }
-  .qty .n { min-width: 34px; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; }
-  .del { color: var(--danger); border: none; background: none; font-size: 13px; padding: 4px 6px; }
+  .chips button.on { background: var(--chip-on); border-color: var(--accent); color: var(--ink); font-weight: 700; }
   .savebar {
     position: fixed; left: 0; right: 0; bottom: 0; padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
     background: var(--bg); border-top: 1px solid var(--line);
-    display: flex; gap: 10px; align-items: center; justify-content: space-between;
+    display: flex; gap: 10px; align-items: center; justify-content: space-between; z-index: 5;
   }
   .savebar .status { color: var(--muted); font-size: 13px; flex: 1; min-width: 0; }
   .savebar button.primary { padding: 12px 18px; }
@@ -96,6 +98,25 @@
     color: var(--ink); background: var(--surface); border: 1px solid var(--line);
     border-radius: 10px; padding: 10px; margin: 8px 0 20px;
   }
+  /* Detail sheet */
+  #overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 10;
+    display: flex; align-items: flex-end; justify-content: center;
+  }
+  #sheet {
+    background: var(--bg); width: 100%; max-width: 560px;
+    border-radius: 18px 18px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+    display: flex; flex-direction: column; gap: 12px; max-height: 86vh; overflow-y: auto;
+  }
+  #sheet .lookup { font-size: 12.5px; color: var(--muted); min-height: 1.2em; }
+  #sheet .lookup.found { color: var(--accent); font-weight: 600; }
+  #sheet label.lbl { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; display: block; margin-bottom: 6px; }
+  #sheet .qtyrow { display: flex; align-items: center; gap: 10px; }
+  #sheet .qtyrow button { width: 44px; height: 44px; padding: 0; font-size: 20px; border-radius: 12px; }
+  #sheet .qtyrow .n { font-size: 20px; font-weight: 800; min-width: 36px; text-align: center; font-variant-numeric: tabular-nums; }
+  #sheet .actions { display: flex; gap: 10px; margin-top: 4px; }
+  #sheet .actions .primary { flex: 1; padding: 13px; font-size: 16px; }
+  #sheet .actions .rm { color: var(--danger); }
 </style>
 </head>
 <body>
@@ -117,16 +138,16 @@
   </div>
 
   <div class="row">
-    <input type="text" id="manual" inputmode="numeric" autocomplete="off"
+    <input type="text" id="manual" autocomplete="off"
            placeholder="No barcode? Type a code or item name…">
     <button id="manual-add">Add</button>
   </div>
 
   <div class="list" id="list"></div>
-  <p class="hint">Scanning the same barcode again bumps its quantity. Names are
-    optional — Claude will identify unnamed barcodes. Your list is kept on this
-    phone automatically; when you're done, tap <strong>Copy list</strong> and
-    paste it into your Claude chat to build the inventory.</p>
+  <p class="hint">Products are looked up automatically in the Open Food Facts
+    database as you scan. Tap any item to edit its details. Scanning the same
+    barcode again bumps its quantity. When you're done, tap
+    <strong>Copy list</strong> and paste it into your Claude chat.</p>
   <textarea id="export-box" readonly hidden
     aria-label="Scan list export — copy this text into your Claude chat"></textarea>
 </main>
@@ -137,9 +158,46 @@
   <button class="primary" id="copy-btn" disabled>Copy list</button>
 </div>
 
+<div id="overlay" hidden>
+  <div id="sheet" role="dialog" aria-label="Item details">
+    <div>
+      <label class="lbl" for="d-name">Item</label>
+      <input type="text" id="d-name" placeholder="Product name">
+      <div class="lookup" id="d-lookup"></div>
+    </div>
+    <div>
+      <label class="lbl">Quantity</label>
+      <div class="qtyrow">
+        <button id="d-minus" aria-label="Decrease quantity">−</button>
+        <span class="n" id="d-qty">1</span>
+        <button id="d-plus" aria-label="Increase quantity">+</button>
+      </div>
+    </div>
+    <div>
+      <label class="lbl">How full is it?</label>
+      <div class="chips" id="d-full"></div>
+    </div>
+    <div>
+      <label class="lbl">Where does it live?</label>
+      <div class="chips" id="d-loc"></div>
+    </div>
+    <div>
+      <label class="lbl" for="d-exp">Expiration / best-by (optional)</label>
+      <input type="date" id="d-exp">
+    </div>
+    <div class="actions">
+      <button class="rm" id="d-remove">Remove</button>
+      <button class="primary" id="d-done">Done — keep scanning</button>
+    </div>
+  </div>
+</div>
+
 <script>
 (function () {
   "use strict";
+  var FULLNESS = ["Unopened", "~¾", "~½", "~¼", "Nearly empty"];
+  var LOCATIONS = ["Pantry", "Fridge", "Freezer", "Counter"];
+
   var items = [];
   try { items = JSON.parse(localStorage.getItem("kitchen-scans") || "[]") || []; }
   catch (e) { items = []; }
@@ -163,38 +221,50 @@
       : "Nothing scanned yet";
   }
 
+  function displayName(it) {
+    if (it.name) return it.name;
+    if (it.code) return "Unknown product";
+    return "Item";
+  }
+
   function render() {
     listEl.innerHTML = "";
     if (!items.length) {
       var e = document.createElement("div");
       e.className = "empty";
-      e.textContent = "Scanned items will show up here.";
+      e.textContent = "Scanned items will show up here. Tap one to edit details.";
       listEl.appendChild(e);
     }
-    items.forEach(function (it, i) {
+    items.forEach(function (it) {
       var card = document.createElement("div"); card.className = "card";
-      var name = document.createElement("input");
-      name.className = "name"; name.type = "text";
-      name.placeholder = "Name (optional)"; name.value = it.name || "";
-      name.addEventListener("input", function () { it.name = name.value; persist(); });
+      var top = document.createElement("div"); top.className = "top";
+      var title = document.createElement("span"); title.className = "title";
+      title.textContent = displayName(it);
+      if (!it.name && it.code) title.classList.add("unknown");
+      var qtytag = document.createElement("span"); qtytag.className = "qtytag";
+      qtytag.textContent = "×" + it.qty;
+      top.append(title, qtytag);
 
-      var qty = document.createElement("div"); qty.className = "qty";
-      var minus = document.createElement("button"); minus.textContent = "−";
-      minus.setAttribute("aria-label", "Decrease quantity");
-      var n = document.createElement("span"); n.className = "n"; n.textContent = it.qty;
-      var plus = document.createElement("button"); plus.textContent = "+";
-      plus.setAttribute("aria-label", "Increase quantity");
-      minus.onclick = function () { if (it.qty > 1) { it.qty--; n.textContent = it.qty; persist(); } };
-      plus.onclick = function () { it.qty++; n.textContent = it.qty; persist(); };
-      qty.append(minus, n, plus);
-
-      var code = document.createElement("span"); code.className = "code";
-      code.textContent = it.code ? it.code : "manual entry";
-
-      var del = document.createElement("button"); del.className = "del"; del.textContent = "Remove";
-      del.onclick = function () { items.splice(i, 1); persist(); render(); };
-
-      card.append(name, qty, code, del);
+      var meta = document.createElement("div"); meta.className = "meta";
+      var bits = [];
+      if (it.brand && it.name && it.name.toLowerCase().indexOf(it.brand.toLowerCase()) === -1) bits.push(it.brand);
+      if (it.size) bits.push(it.size);
+      if (it.full && it.full !== "Unopened") bits.push(it.full + " full");
+      if (it.loc) bits.push(it.loc.toLowerCase());
+      bits.forEach(function (b) {
+        var s = document.createElement("span"); s.textContent = b; meta.appendChild(s);
+      });
+      if (it.exp) {
+        var s2 = document.createElement("span"); s2.className = "exp";
+        s2.textContent = "exp " + it.exp; meta.appendChild(s2);
+      }
+      if (it.code) {
+        var s3 = document.createElement("span");
+        s3.style.fontVariantNumeric = "tabular-nums";
+        s3.textContent = it.code; meta.appendChild(s3);
+      }
+      card.append(top, meta);
+      card.onclick = function () { openSheet(it, false); };
       listEl.appendChild(card);
     });
     refreshStatus();
@@ -206,6 +276,58 @@
     toastTimer = setTimeout(function () { toastEl.classList.remove("show"); }, 1600);
   }
 
+  // --- Open Food Facts lookup ---
+  var offCache = {};
+  function lookup(codeVal) {
+    if (offCache[codeVal]) return offCache[codeVal];
+    var tryCode = function (c) {
+      return fetch("https://world.openfoodfacts.org/api/v2/product/" + c +
+                   ".json?fields=product_name,product_name_en,brands,quantity", { mode: "cors" })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) { return (j && j.status === 1 && j.product) ? j.product : null; })
+        .catch(function () { return null; });
+    };
+    var p = tryCode(codeVal).then(function (prod) {
+      if (prod || codeVal.length !== 12) return prod;
+      return tryCode("0" + codeVal); // UPC-A often stored as 13-digit EAN
+    }).then(function (prod) {
+      if (!prod) return null;
+      return {
+        name: (prod.product_name_en || prod.product_name || "").trim(),
+        brand: (prod.brands || "").split(",")[0].trim(),
+        size: (prod.quantity || "").trim()
+      };
+    });
+    offCache[codeVal] = p;
+    return p;
+  }
+
+  function applyLookup(it) {
+    if (!it.code || it.name) { return Promise.resolve(false); }
+    it.looking = true;
+    updateSheetLookup(it);
+    return lookup(it.code).then(function (info) {
+      it.looking = false;
+      if (info && (info.name || info.brand)) {
+        var full = info.name;
+        if (info.brand && full.toLowerCase().indexOf(info.brand.toLowerCase()) === -1) {
+          full = info.brand + " " + full;
+        }
+        if (!it.name) it.name = full.trim();
+        it.brand = info.brand || it.brand;
+        it.size = info.size || it.size;
+        it.found = true;
+        persist(); render(); updateSheetLookup(it);
+        if (sheetItem !== it) toast(displayName(it));
+        return true;
+      }
+      it.found = false;
+      persist(); render(); updateSheetLookup(it);
+      return false;
+    });
+  }
+
+  // --- Scan handling ---
   var lastCode = "", lastAt = 0;
   function onScan(codeVal) {
     var now = Date.now();
@@ -213,13 +335,102 @@
     lastCode = codeVal; lastAt = now;
     if (navigator.vibrate) { try { navigator.vibrate(60); } catch (e) {} }
     var existing = items.find(function (it) { return it.code === codeVal; });
-    if (existing) { existing.qty++; toast((existing.name || codeVal) + " ×" + existing.qty); }
-    else { items.unshift({ code: codeVal, name: "", qty: 1, ts: now }); toast("Added " + codeVal); }
+    if (existing) {
+      existing.qty++;
+      toast(displayName(existing) + " ×" + existing.qty);
+      persist(); render();
+      if (sheetItem === existing) syncSheet(existing);
+      return;
+    }
+    var it = { code: codeVal, name: "", brand: "", size: "", qty: 1,
+               full: "Unopened", loc: "", exp: "", ts: now };
+    items.unshift(it);
     persist(); render();
-    window.scrollTo({ top: 0 });
+    openSheet(it, true);
+    applyLookup(it);
   }
 
-  // --- Camera + decoding: native BarcodeDetector, else ZXing fallback ---
+  // --- Detail sheet ---
+  var overlay = document.getElementById("overlay");
+  var sheetItem = null;
+  var dName = document.getElementById("d-name");
+  var dLookup = document.getElementById("d-lookup");
+  var dQty = document.getElementById("d-qty");
+  var dFull = document.getElementById("d-full");
+  var dLoc = document.getElementById("d-loc");
+  var dExp = document.getElementById("d-exp");
+
+  function chipRow(container, options, get, set, allowOff) {
+    container.innerHTML = "";
+    options.forEach(function (opt) {
+      var b = document.createElement("button");
+      b.type = "button"; b.textContent = opt;
+      if (get() === opt) b.classList.add("on");
+      b.onclick = function () {
+        set(allowOff && get() === opt ? "" : opt);
+        persist(); render();
+        chipRow(container, options, get, set, allowOff);
+      };
+      container.appendChild(b);
+    });
+  }
+
+  function updateSheetLookup(it) {
+    if (sheetItem !== it) return;
+    dLookup.classList.remove("found");
+    if (it.looking) { dLookup.textContent = "Looking up barcode…"; }
+    else if (it.found) {
+      dLookup.textContent = "✓ Found" + (it.size ? " — " + it.size : "");
+      dLookup.classList.add("found");
+      if (!dName.matches(":focus")) dName.value = it.name;
+    }
+    else if (it.code && it.found === false) {
+      dLookup.textContent = "Not in the database — name it if you can, or Claude will research the code.";
+    }
+    else { dLookup.textContent = ""; }
+  }
+
+  function syncSheet(it) {
+    dName.value = it.name || "";
+    dQty.textContent = it.qty;
+    dExp.value = it.exp || "";
+    chipRow(dFull, FULLNESS, function () { return it.full; }, function (v) { it.full = v; }, false);
+    chipRow(dLoc, LOCATIONS, function () { return it.loc; }, function (v) { it.loc = v; }, true);
+    updateSheetLookup(it);
+  }
+
+  function openSheet(it, isNew) {
+    sheetItem = it;
+    syncSheet(it);
+    overlay.hidden = false;
+    if (!isNew) dName.focus();
+  }
+  function closeSheet() {
+    sheetItem = null; overlay.hidden = true;
+    persist(); render();
+  }
+  overlay.addEventListener("click", function (e) { if (e.target === overlay) closeSheet(); });
+  document.getElementById("d-done").onclick = closeSheet;
+  document.getElementById("d-remove").onclick = function () {
+    var i = items.indexOf(sheetItem);
+    if (i !== -1) items.splice(i, 1);
+    closeSheet();
+  };
+  dName.addEventListener("input", function () {
+    if (sheetItem) { sheetItem.name = dName.value; persist(); }
+  });
+  dName.addEventListener("blur", function () { render(); });
+  dExp.addEventListener("change", function () {
+    if (sheetItem) { sheetItem.exp = dExp.value; persist(); render(); }
+  });
+  document.getElementById("d-minus").onclick = function () {
+    if (sheetItem && sheetItem.qty > 1) { sheetItem.qty--; dQty.textContent = sheetItem.qty; persist(); render(); }
+  };
+  document.getElementById("d-plus").onclick = function () {
+    if (sheetItem) { sheetItem.qty++; dQty.textContent = sheetItem.qty; persist(); render(); }
+  };
+
+  // --- Camera + decoding ---
   var video = document.getElementById("video");
   var FORMATS = ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39", "itf", "qr_code"];
 
@@ -241,7 +452,7 @@
 
   function startCamera() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      cameraFail("Live video isn't available here — use photo mode: it opens your phone's camera app and reads the barcode from the picture.");
+      cameraFail("Live video isn't available here — use photo mode instead.");
       return;
     }
     document.getElementById("vf-msg").hidden = true;
@@ -348,7 +559,12 @@
     var v = manual.value.trim();
     if (!v) return;
     if (/^\d{6,14}$/.test(v)) { onScan(v); }
-    else { items.unshift({ code: "", name: v, qty: 1, ts: Date.now() }); persist(); render(); }
+    else {
+      var it = { code: "", name: v, brand: "", size: "", qty: 1,
+                 full: "Unopened", loc: "", exp: "", ts: Date.now() };
+      items.unshift(it); persist(); render();
+      openSheet(it, true);
+    }
     manual.value = "";
   }
   document.getElementById("manual-add").onclick = addManual;
@@ -357,7 +573,15 @@
   // --- Export ---
   function exportText() {
     var lines = items.map(function (it) {
-      return (it.qty > 1 ? it.qty + "x " : "") + (it.name || "?") + (it.code ? " [" + it.code + "]" : "");
+      var parts = [];
+      parts.push((it.qty > 1 ? it.qty + "x " : "") + (it.name || "?"));
+      if (it.size) parts.push(it.size);
+      if (it.full && it.full !== "Unopened") parts.push(it.full + " full");
+      if (it.loc) parts.push(it.loc.toLowerCase());
+      if (it.exp) parts.push("exp " + it.exp);
+      var line = parts.join(", ");
+      if (it.code) line += " [" + it.code + "]";
+      return line;
     });
     return "KITCHEN SCAN LIST (" + new Date().toISOString().slice(0, 10) + ")\n" + lines.join("\n");
   }
