@@ -54,6 +54,7 @@
     overflow: hidden; text-overflow: ellipsis;
   }
   .vf-toast.show { opacity: 1; }
+  .vf-msg[hidden] { display: none !important; }
   .row { display: flex; gap: 8px; margin: 10px 0; }
   input[type="text"], input[type="date"] {
     font: inherit; color: var(--ink); background: var(--surface);
@@ -103,6 +104,7 @@
     position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 10;
     display: flex; align-items: flex-end; justify-content: center;
   }
+  #overlay[hidden] { display: none !important; }
   #sheet {
     background: var(--bg); width: 100%; max-width: 560px;
     border-radius: 18px 18px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
