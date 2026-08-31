@@ -3,7 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>Kitchen Scanner</title>
+<meta name="theme-color" content="#3E7A4E">
+<title>Kitchen</title>
+<link rel="manifest" href="manifest.json">
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
 <style>
   :root {
@@ -19,15 +21,77 @@
     }
   }
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
     background: var(--bg); color: var(--ink);
     font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    margin: 0; padding-bottom: 88px;
+    margin: 0; padding-bottom: calc(64px + env(safe-area-inset-bottom));
   }
-  header { padding: 14px 16px 6px; display: flex; align-items: baseline; gap: 10px; }
-  header h1 { font-size: 19px; margin: 0; letter-spacing: -0.01em; }
-  header .sub { color: var(--muted); font-size: 13px; }
-  main { max-width: 560px; margin: 0 auto; padding: 0 12px; }
+  header {
+    padding: 12px 16px 8px; display: flex; align-items: center; gap: 10px;
+    position: sticky; top: 0; background: var(--bg); z-index: 4;
+    border-bottom: 1px solid var(--line);
+  }
+  header h1 { font-size: 18px; margin: 0; letter-spacing: -0.01em; flex: 1; }
+  #sync-chip {
+    font-size: 12px; padding: 4px 10px; border-radius: 999px; background: var(--chip);
+    color: var(--muted); border: none; font-weight: 600; white-space: nowrap; cursor: pointer;
+  }
+  #sync-chip.dirty { background: var(--flag); color: #fff; }
+  #sync-chip.err { background: var(--danger); color: #fff; }
+  main { max-width: 560px; margin: 0 auto; padding: 10px 12px; }
+  .tab { display: none; }
+  .tab.active { display: block; }
+  nav {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 6;
+    display: flex; background: var(--bg); border-top: 1px solid var(--line);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  nav button {
+    flex: 1; background: none; border: none; color: var(--muted);
+    font: inherit; font-size: 11px; font-weight: 600; padding: 8px 0 6px;
+    display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer;
+  }
+  nav button .ico { font-size: 20px; line-height: 1; }
+  nav button.active { color: var(--accent); }
+  input[type="text"], input[type="date"], input[type="password"], input[type="search"] {
+    font: inherit; color: var(--ink); background: var(--surface);
+    border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; width: 100%;
+  }
+  input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button.btn {
+    font: inherit; font-weight: 600; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--surface); color: var(--ink); padding: 10px 14px; cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  button.btn:disabled { opacity: .5; }
+  .row { display: flex; gap: 8px; margin: 10px 0; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .empty { color: var(--muted); text-align: center; padding: 30px 12px; font-size: 14px; }
+
+  .cat-h {
+    font-size: 12px; text-transform: uppercase; letter-spacing: .07em;
+    color: var(--muted); font-weight: 700; margin: 18px 2px 6px;
+    display: flex; justify-content: space-between;
+  }
+  .item {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 9px 12px; margin-bottom: 6px; cursor: pointer;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .item .body { flex: 1; min-width: 0; }
+  .item .name { font-weight: 600; font-size: 14.5px; }
+  .item .sub { color: var(--muted); font-size: 12px; display: flex; flex-wrap: wrap; gap: 3px 8px; }
+  .item .sub .exp-soon { color: var(--danger); font-weight: 700; }
+  .fullbar {
+    width: 34px; height: 6px; border-radius: 3px; background: var(--chip);
+    overflow: hidden; flex: none;
+  }
+  .fullbar i { display: block; height: 100%; background: var(--accent); }
+  .fullbar.warn i { background: var(--flag); }
+  .qbadge { font-weight: 700; font-size: 13px; font-variant-numeric: tabular-nums; color: var(--muted); flex: none; }
+
   .viewfinder {
     position: relative; border-radius: 14px; overflow: hidden;
     background: #0c0c0c; aspect-ratio: 4 / 3; border: 1px solid var(--line);
@@ -46,6 +110,7 @@
     align-items: center; justify-content: center; text-align: center;
     color: #ddd; padding: 20px; font-size: 14px;
   }
+  .vf-msg[hidden] { display: none !important; }
   .vf-toast {
     position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%);
     background: var(--accent); color: var(--accent-ink); font-weight: 600;
@@ -54,52 +119,23 @@
     overflow: hidden; text-overflow: ellipsis;
   }
   .vf-toast.show { opacity: 1; }
-  .vf-msg[hidden] { display: none !important; }
-  .row { display: flex; gap: 8px; margin: 10px 0; }
-  input[type="text"], input[type="date"] {
-    font: inherit; color: var(--ink); background: var(--surface);
-    border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; width: 100%;
-  }
-  input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-  button {
-    font: inherit; font-weight: 600; border: 1px solid var(--line); border-radius: 10px;
-    background: var(--surface); color: var(--ink); padding: 10px 14px; cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
-  }
-  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-  button:disabled { opacity: .5; cursor: default; }
-  .list { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
-  .empty { color: var(--muted); text-align: center; padding: 26px 12px; font-size: 14px; }
-  .card {
+
+  .shop-item {
     background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
-    padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; cursor: pointer;
+    padding: 10px 12px; margin-bottom: 6px; display: flex; align-items: center; gap: 10px;
   }
-  .card .top { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
-  .card .title { font-weight: 600; font-size: 15px; }
-  .card .title.unknown { color: var(--flag); }
-  .card .qtytag { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .card .meta { color: var(--muted); font-size: 12.5px; display: flex; flex-wrap: wrap; gap: 4px 10px; }
-  .card .meta .exp { color: var(--flag); font-weight: 600; }
-  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
-  .chips button {
-    padding: 7px 12px; border-radius: 999px; background: var(--chip);
-    border-color: transparent; font-size: 13.5px; font-weight: 500;
+  .shop-item input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent); flex: none; }
+  .shop-item .body { flex: 1; }
+  .shop-item .reason { color: var(--muted); font-size: 12px; }
+  .shop-item.done .body { text-decoration: line-through; opacity: .55; }
+
+  .recipe-link {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px; margin-bottom: 6px; font-weight: 600; cursor: pointer;
+    text-transform: capitalize;
   }
-  .chips button.on { background: var(--chip-on); border-color: var(--accent); color: var(--ink); font-weight: 700; }
-  .savebar {
-    position: fixed; left: 0; right: 0; bottom: 0; padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
-    background: var(--bg); border-top: 1px solid var(--line);
-    display: flex; gap: 10px; align-items: center; justify-content: space-between; z-index: 5;
-  }
-  .savebar .status { color: var(--muted); font-size: 13px; flex: 1; min-width: 0; }
-  .savebar button.primary { padding: 12px 18px; }
-  .hint { color: var(--muted); font-size: 12.5px; margin: 10px 2px 8px; }
-  #export-box {
-    width: 100%; height: 150px; font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace;
-    color: var(--ink); background: var(--surface); border: 1px solid var(--line);
-    border-radius: 10px; padding: 10px; margin: 8px 0 20px;
-  }
-  /* Detail sheet */
+  #recipe-view pre { white-space: pre-wrap; font: 14px/1.55 inherit; }
+
   #overlay {
     position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 10;
     display: flex; align-items: flex-end; justify-content: center;
@@ -112,53 +148,104 @@
   }
   #sheet .lookup { font-size: 12.5px; color: var(--muted); min-height: 1.2em; }
   #sheet .lookup.found { color: var(--accent); font-weight: 600; }
-  #sheet label.lbl { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; display: block; margin-bottom: 6px; }
-  #sheet .qtyrow { display: flex; align-items: center; gap: 10px; }
-  #sheet .qtyrow button { width: 44px; height: 44px; padding: 0; font-size: 20px; border-radius: 12px; }
-  #sheet .qtyrow .n { font-size: 20px; font-weight: 800; min-width: 36px; text-align: center; font-variant-numeric: tabular-nums; }
-  #sheet .actions { display: flex; gap: 10px; margin-top: 4px; }
-  #sheet .actions .primary { flex: 1; padding: 13px; font-size: 16px; }
-  #sheet .actions .rm { color: var(--danger); }
+  .lbl { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; display: block; margin-bottom: 6px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chips button {
+    font: inherit; padding: 7px 12px; border-radius: 999px; background: var(--chip);
+    border: 1px solid transparent; font-size: 13.5px; font-weight: 500; color: var(--ink); cursor: pointer;
+  }
+  .chips button.on { background: var(--chip-on); border-color: var(--accent); font-weight: 700; }
+  .qtyrow { display: flex; align-items: center; gap: 10px; }
+  .qtyrow button { width: 44px; height: 44px; padding: 0; font-size: 20px; border-radius: 12px; }
+  .qtyrow .n { font-size: 20px; font-weight: 800; min-width: 36px; text-align: center; font-variant-numeric: tabular-nums; }
+  .actions { display: flex; gap: 10px; margin-top: 4px; flex-wrap: wrap; }
+  .actions .primary { flex: 1; padding: 13px; font-size: 16px; }
+  .actions .rm { color: var(--danger); }
 </style>
 </head>
 <body>
 <header>
-  <h1>🛒 Kitchen Scanner</h1>
-  <span class="sub" id="count-sub"></span>
+  <h1>🍳 Kitchen</h1>
+  <button id="sync-chip" title="Sync status">…</button>
 </header>
+
 <main>
-  <div class="viewfinder">
-    <video id="video" playsinline muted></video>
-    <div class="scanline" id="scanline" hidden></div>
-    <div class="vf-msg" id="vf-msg">
-      <div>Scan the barcodes on your food items with your phone camera.</div>
-      <button class="primary" id="start-btn">Start live camera</button>
-      <button id="photo-btn">📸 Snap a barcode photo</button>
+  <section class="tab active" id="tab-inv">
+    <input type="search" id="inv-search" placeholder="Search the kitchen…">
+    <div id="inv-list"></div>
+    <div class="row">
+      <input type="text" id="inv-add-name" placeholder="Add item by name…">
+      <button class="btn" id="inv-add-btn">Add</button>
     </div>
-    <input type="file" id="photo-input" accept="image/*" capture="environment" hidden>
-    <div class="vf-toast" id="vf-toast"></div>
-  </div>
+  </section>
 
-  <div class="row">
-    <input type="text" id="manual" autocomplete="off"
-           placeholder="No barcode? Type a code or item name…">
-    <button id="manual-add">Add</button>
-  </div>
+  <section class="tab" id="tab-scan">
+    <div class="viewfinder">
+      <video id="video" playsinline muted></video>
+      <div class="scanline" id="scanline" hidden></div>
+      <div class="vf-msg" id="vf-msg">
+        <div>Scan barcodes to add items to the kitchen.</div>
+        <button class="btn primary" id="start-btn">Start live camera</button>
+        <button class="btn" id="photo-btn">📸 Snap a barcode photo</button>
+      </div>
+      <input type="file" id="photo-input" accept="image/*" capture="environment" hidden>
+      <div class="vf-toast" id="vf-toast"></div>
+    </div>
+    <div class="row">
+      <input type="text" id="manual" autocomplete="off" placeholder="Type a barcode…">
+      <button class="btn" id="manual-add">Add</button>
+    </div>
+    <p class="muted">Scans are looked up in Open Food Facts, then saved straight
+      into the shared inventory. Re-scanning an item bumps its quantity.</p>
+  </section>
 
-  <div class="list" id="list"></div>
-  <p class="hint">Products are looked up automatically in the Open Food Facts
-    database as you scan. Tap any item to edit its details. Scanning the same
-    barcode again bumps its quantity. When you're done, tap
-    <strong>Copy list</strong> and paste it into your Claude chat.</p>
-  <textarea id="export-box" readonly hidden
-    aria-label="Scan list export — copy this text into your Claude chat"></textarea>
+  <section class="tab" id="tab-shop">
+    <div id="shop-list"></div>
+    <div class="row">
+      <input type="text" id="shop-add-name" placeholder="Add to shopping list…">
+      <button class="btn" id="shop-add-btn">Add</button>
+    </div>
+    <button class="btn" id="shop-clear-done">Remove checked items</button>
+    <p class="muted">Claude adds things here when the inventory runs low; check
+      items off as you buy them, then scan them in.</p>
+  </section>
+
+  <section class="tab" id="tab-recipes">
+    <div id="recipe-list"><div class="empty">Loading…</div></div>
+    <div id="recipe-view" hidden>
+      <button class="btn" id="recipe-back">← All recipes</button>
+      <pre id="recipe-body"></pre>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-settings">
+    <label class="lbl" for="gh-token">GitHub token</label>
+    <input type="password" id="gh-token" placeholder="github_pat_…" autocomplete="off">
+    <p class="muted">Create a fine-grained token at github.com → Settings →
+      Developer settings → Personal access tokens → Fine-grained tokens.
+      Repository access: <strong>only Kitchen</strong>. Permissions:
+      <strong>Contents — Read and write</strong>. Paste it here — it stays on
+      this phone only.</p>
+    <div class="row">
+      <button class="btn primary" id="token-save">Save token</button>
+      <button class="btn" id="token-clear">Clear</button>
+    </div>
+    <div id="settings-status" class="muted" style="margin-top:8px"></div>
+    <hr style="border:none;border-top:1px solid var(--line);margin:18px 0">
+    <p class="muted">Data lives in the private <strong>Kitchen</strong> repo
+      (<code>data/inventory.json</code>). You, Claude, and this app all edit the
+      same file. The sync chip up top: tap it to pull Claude's latest changes;
+      your edits push automatically a few seconds after you make them.</p>
+  </section>
 </main>
 
-<div class="savebar">
-  <span class="status" id="status">Nothing scanned yet</span>
-  <button id="clear-btn">Clear</button>
-  <button class="primary" id="copy-btn" disabled>Copy list</button>
-</div>
+<nav>
+  <button data-tab="inv" class="active"><span class="ico">🥫</span>Kitchen</button>
+  <button data-tab="scan"><span class="ico">📷</span>Scan</button>
+  <button data-tab="shop"><span class="ico">🛒</span>Shopping</button>
+  <button data-tab="recipes"><span class="ico">📖</span>Recipes</button>
+  <button data-tab="settings"><span class="ico">⚙️</span>Setup</button>
+</nav>
 
 <div id="overlay" hidden>
   <div id="sheet" role="dialog" aria-label="Item details">
@@ -170,26 +257,27 @@
     <div>
       <label class="lbl">Quantity</label>
       <div class="qtyrow">
-        <button id="d-minus" aria-label="Decrease quantity">−</button>
+        <button class="btn" id="d-minus" aria-label="Decrease">−</button>
         <span class="n" id="d-qty">1</span>
-        <button id="d-plus" aria-label="Increase quantity">+</button>
+        <button class="btn" id="d-plus" aria-label="Increase">+</button>
       </div>
     </div>
     <div>
-      <label class="lbl">How full is it?</label>
+      <label class="lbl">How full?</label>
       <div class="chips" id="d-full"></div>
     </div>
     <div>
-      <label class="lbl">Where does it live?</label>
-      <div class="chips" id="d-loc"></div>
+      <label class="lbl">Where?</label>
+      <div class="chips" id="d-cat"></div>
     </div>
     <div>
       <label class="lbl" for="d-exp">Expiration / best-by (optional)</label>
       <input type="date" id="d-exp">
     </div>
     <div class="actions">
-      <button class="rm" id="d-remove">Remove</button>
-      <button class="primary" id="d-done">Done — keep scanning</button>
+      <button class="btn rm" id="d-usedup">Used up 🛒</button>
+      <button class="btn rm" id="d-remove">Remove</button>
+      <button class="btn primary" id="d-done">Done</button>
     </div>
   </div>
 </div>
@@ -197,181 +285,214 @@
 <script>
 (function () {
   "use strict";
-  var FULLNESS = ["Unopened", "~¾", "~½", "~¼", "Nearly empty"];
-  var LOCATIONS = ["Pantry", "Fridge", "Freezer", "Counter"];
+  var REPO = "connerduberville-dot/Kitchen";
+  var BRANCH = "claude/kitchen-inventory-setup-mufjmr";
+  var DATA_PATH = "data/inventory.json";
+  var API = "https://api.github.com";
 
-  var items = [];
-  try { items = JSON.parse(localStorage.getItem("kitchen-scans") || "[]") || []; }
-  catch (e) { items = []; }
+  var FULLNESS = ["unopened", "3/4", "1/2", "1/4", "low"];
+  var FULL_LABEL = { "unopened": "Unopened", "3/4": "~¾", "1/2": "~½", "1/4": "~¼", "low": "Nearly empty" };
+  var FULL_PCT = { "unopened": 1, "3/4": 0.75, "1/2": 0.5, "1/4": 0.25, "low": 0.1 };
+  var CATS = ["fridge", "freezer", "pantry", "spices", "oils", "baking", "bar", "produce", "snacks", "other"];
+  var CAT_LABEL = { fridge: "Fridge", freezer: "Freezer", pantry: "Pantry", spices: "Spices",
+    oils: "Oils & condiments", baking: "Baking", bar: "Bar",
+    produce: "Produce", snacks: "Snacks", other: "Uncategorized" };
 
-  var listEl = document.getElementById("list");
-  var statusEl = document.getElementById("status");
-  var copyBtn = document.getElementById("copy-btn");
-  var toastEl = document.getElementById("vf-toast");
-  var toastTimer = null;
+  var data = { updated: "", items: [], shopping: [] };
+  var fileSha = null;
+  var token = "";
+  try { token = localStorage.getItem("gh-token") || ""; } catch (e) {}
+  try {
+    var cached = localStorage.getItem("kitchen-data");
+    if (cached) data = JSON.parse(cached);
+  } catch (e) {}
+  if (!Array.isArray(data.items)) data.items = [];
+  if (!Array.isArray(data.shopping)) data.shopping = [];
+  var pushTimer = null, pushing = false, dirty = false;
 
-  function persist() {
-    try { localStorage.setItem("kitchen-scans", JSON.stringify(items)); } catch (e) {}
+  function cacheLocal() {
+    try { localStorage.setItem("kitchen-data", JSON.stringify(data)); } catch (e) {}
   }
 
-  function refreshStatus() {
-    document.getElementById("count-sub").textContent =
-      items.length ? items.length + " item" + (items.length === 1 ? "" : "s") : "";
-    copyBtn.disabled = !items.length;
-    statusEl.textContent = items.length
-      ? "Saved on this phone — copy the list when done"
-      : "Nothing scanned yet";
+  var chip = document.getElementById("sync-chip");
+  function setChip(txt, cls) { chip.textContent = txt; chip.className = cls || ""; }
+
+  function ghHeaders() {
+    return { "Authorization": "Bearer " + token, "Accept": "application/vnd.github+json" };
   }
+  function b64decode(s) { return decodeURIComponent(escape(atob(s.replace(/\n/g, "")))); }
+  function b64encode(s) { return btoa(unescape(encodeURIComponent(s))); }
 
-  function displayName(it) {
-    if (it.name) return it.name;
-    if (it.code) return "Unknown product";
-    return "Item";
-  }
-
-  function render() {
-    listEl.innerHTML = "";
-    if (!items.length) {
-      var e = document.createElement("div");
-      e.className = "empty";
-      e.textContent = "Scanned items will show up here. Tap one to edit details.";
-      listEl.appendChild(e);
-    }
-    items.forEach(function (it) {
-      var card = document.createElement("div"); card.className = "card";
-      var top = document.createElement("div"); top.className = "top";
-      var title = document.createElement("span"); title.className = "title";
-      title.textContent = displayName(it);
-      if (!it.name && it.code) title.classList.add("unknown");
-      var qtytag = document.createElement("span"); qtytag.className = "qtytag";
-      qtytag.textContent = "×" + it.qty;
-      top.append(title, qtytag);
-
-      var meta = document.createElement("div"); meta.className = "meta";
-      var bits = [];
-      if (it.brand && it.name && it.name.toLowerCase().indexOf(it.brand.toLowerCase()) === -1) bits.push(it.brand);
-      if (it.size) bits.push(it.size);
-      if (it.full && it.full !== "Unopened") bits.push(it.full + " full");
-      if (it.loc) bits.push(it.loc.toLowerCase());
-      bits.forEach(function (b) {
-        var s = document.createElement("span"); s.textContent = b; meta.appendChild(s);
-      });
-      if (it.exp) {
-        var s2 = document.createElement("span"); s2.className = "exp";
-        s2.textContent = "exp " + it.exp; meta.appendChild(s2);
-      }
-      if (it.code) {
-        var s3 = document.createElement("span");
-        s3.style.fontVariantNumeric = "tabular-nums";
-        s3.textContent = it.code; meta.appendChild(s3);
-      }
-      card.append(top, meta);
-      card.onclick = function () { openSheet(it, false); };
-      listEl.appendChild(card);
-    });
-    refreshStatus();
-  }
-
-  function toast(msg) {
-    toastEl.textContent = msg; toastEl.classList.add("show");
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { toastEl.classList.remove("show"); }, 1600);
-  }
-
-  // --- Open Food Facts lookup ---
-  var offCache = {};
-  function lookup(codeVal) {
-    if (offCache[codeVal]) return offCache[codeVal];
-    var tryCode = function (c) {
-      return fetch("https://world.openfoodfacts.org/api/v2/product/" + c +
-                   ".json?fields=product_name,product_name_en,brands,quantity", { mode: "cors" })
-        .then(function (r) { return r.ok ? r.json() : null; })
-        .then(function (j) { return (j && j.status === 1 && j.product) ? j.product : null; })
-        .catch(function () { return null; });
-    };
-    var p = tryCode(codeVal).then(function (prod) {
-      if (prod || codeVal.length !== 12) return prod;
-      return tryCode("0" + codeVal); // UPC-A often stored as 13-digit EAN
-    }).then(function (prod) {
-      if (!prod) return null;
-      return {
-        name: (prod.product_name_en || prod.product_name || "").trim(),
-        brand: (prod.brands || "").split(",")[0].trim(),
-        size: (prod.quantity || "").trim()
-      };
-    });
-    offCache[codeVal] = p;
-    return p;
-  }
-
-  function applyLookup(it) {
-    if (!it.code || it.name) { return Promise.resolve(false); }
-    it.looking = true;
-    updateSheetLookup(it);
-    return lookup(it.code).then(function (info) {
-      it.looking = false;
-      if (info && (info.name || info.brand)) {
-        var full = info.name;
-        if (info.brand && full.toLowerCase().indexOf(info.brand.toLowerCase()) === -1) {
-          full = info.brand + " " + full;
+  function pull() {
+    if (!token) { setChip("no token — see Setup", "err"); return Promise.resolve(false); }
+    setChip("syncing…");
+    return fetch(API + "/repos/" + REPO + "/contents/" + DATA_PATH + "?ref=" + encodeURIComponent(BRANCH) + "&t=" + Date.now(),
+      { headers: ghHeaders(), cache: "no-store" })
+      .then(function (r) {
+        if (r.status === 401 || r.status === 403) throw new Error("auth");
+        if (!r.ok) throw new Error("http" + r.status);
+        return r.json();
+      })
+      .then(function (j) {
+        fileSha = j.sha;
+        if (!dirty) {
+          data = JSON.parse(b64decode(j.content));
+          if (!Array.isArray(data.items)) data.items = [];
+          if (!Array.isArray(data.shopping)) data.shopping = [];
+          cacheLocal(); renderAll();
         }
-        if (!it.name) it.name = full.trim();
-        it.brand = info.brand || it.brand;
-        it.size = info.size || it.size;
-        it.found = true;
-        persist(); render(); updateSheetLookup(it);
-        if (sheetItem !== it) toast(displayName(it));
+        setChip(dirty ? "unsaved" : "synced ✓", dirty ? "dirty" : "");
         return true;
-      }
-      it.found = false;
-      persist(); render(); updateSheetLookup(it);
-      return false;
+      })
+      .catch(function (e) {
+        setChip(e.message === "auth" ? "bad token" : "offline", "err");
+        return false;
+      });
+  }
+
+  function schedulePush() {
+    dirty = true; cacheLocal(); setChip("unsaved", "dirty");
+    clearTimeout(pushTimer);
+    pushTimer = setTimeout(push, 2500);
+  }
+
+  function doPut(content) {
+    return fetch(API + "/repos/" + REPO + "/contents/" + DATA_PATH, {
+      method: "PUT", headers: ghHeaders(),
+      body: JSON.stringify({ message: "app: update inventory", content: content, sha: fileSha, branch: BRANCH })
     });
   }
 
-  // --- Scan handling ---
-  var lastCode = "", lastAt = 0;
-  function onScan(codeVal) {
-    var now = Date.now();
-    if (codeVal === lastCode && now - lastAt < 2500) return;
-    lastCode = codeVal; lastAt = now;
-    if (navigator.vibrate) { try { navigator.vibrate(60); } catch (e) {} }
-    var existing = items.find(function (it) { return it.code === codeVal; });
-    if (existing) {
-      existing.qty++;
-      toast(displayName(existing) + " ×" + existing.qty);
-      persist(); render();
-      if (sheetItem === existing) syncSheet(existing);
+  function push() {
+    if (!token || pushing || !dirty) return;
+    pushing = true; setChip("saving…", "dirty");
+    data.updated = new Date().toISOString().slice(0, 10);
+    var content = b64encode(JSON.stringify(data, null, 2) + "\n");
+    doPut(content).then(function (r) {
+      if (r.status === 409 || r.status === 422) {
+        return fetch(API + "/repos/" + REPO + "/contents/" + DATA_PATH + "?ref=" + encodeURIComponent(BRANCH) + "&t=" + Date.now(),
+          { headers: ghHeaders(), cache: "no-store" })
+          .then(function (r2) { return r2.json(); })
+          .then(function (j) { fileSha = j.sha; return doPut(content); });
+      }
+      return r;
+    }).then(function (r) {
+      if (!r.ok) throw new Error("http" + r.status);
+      return r.json();
+    }).then(function (j) {
+      if (j.content && j.content.sha) fileSha = j.content.sha;
+      dirty = false; pushing = false; setChip("synced ✓");
+    }).catch(function () {
+      pushing = false; setChip("save failed — will retry", "err");
+      clearTimeout(pushTimer); pushTimer = setTimeout(push, 8000);
+    });
+  }
+  chip.onclick = function () { if (dirty) push(); else pull(); };
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden && !dirty) pull();
+  });
+
+  var navBtns = document.querySelectorAll("nav button");
+  navBtns.forEach(function (b) {
+    b.onclick = function () {
+      navBtns.forEach(function (x) { x.classList.remove("active"); });
+      b.classList.add("active");
+      document.querySelectorAll(".tab").forEach(function (t) { t.classList.remove("active"); });
+      document.getElementById("tab-" + b.dataset.tab).classList.add("active");
+      if (b.dataset.tab === "recipes" && !recipesLoaded) loadRecipes();
+    };
+  });
+
+  var invList = document.getElementById("inv-list");
+  var invSearch = document.getElementById("inv-search");
+  invSearch.addEventListener("input", renderInventory);
+
+  function expBadge(exp) {
+    if (!exp) return null;
+    var d = new Date(exp + "T12:00:00");
+    var days = Math.round((d - Date.now()) / 86400000);
+    var s = document.createElement("span");
+    if (days < 0) { s.className = "exp-soon"; s.textContent = "expired " + exp; }
+    else if (days <= 14) { s.className = "exp-soon"; s.textContent = "exp in " + days + "d"; }
+    else { s.textContent = "exp " + exp; }
+    return s;
+  }
+
+  function renderInventory() {
+    var q = invSearch.value.trim().toLowerCase();
+    invList.innerHTML = "";
+    var shown = data.items.filter(function (it) {
+      return !q || (it.name || "").toLowerCase().includes(q) ||
+        (it.note || "").toLowerCase().includes(q) || (it.code || "").includes(q);
+    });
+    if (!shown.length) {
+      invList.innerHTML = '<div class="empty">' + (q ? "No matches." : "Nothing here yet — scan something!") + "</div>";
       return;
     }
-    var it = { code: codeVal, name: "", brand: "", size: "", qty: 1,
-               full: "Unopened", loc: "", exp: "", ts: now };
-    items.unshift(it);
-    persist(); render();
-    openSheet(it, true);
-    applyLookup(it);
+    CATS.forEach(function (cat) {
+      var group = shown.filter(function (it) { return (it.cat || "other") === cat; });
+      if (!group.length) return;
+      var h = document.createElement("div"); h.className = "cat-h";
+      var l = document.createElement("span"); l.textContent = CAT_LABEL[cat];
+      var n = document.createElement("span"); n.textContent = group.length;
+      h.append(l, n);
+      invList.appendChild(h);
+      group.forEach(function (it) {
+        var el = document.createElement("div"); el.className = "item";
+        var bar = document.createElement("div");
+        var pct = FULL_PCT[it.full] != null ? FULL_PCT[it.full] : 1;
+        bar.className = "fullbar" + (pct <= 0.25 ? " warn" : "");
+        var fill = document.createElement("i"); fill.style.width = Math.round(pct * 100) + "%";
+        bar.appendChild(fill);
+        var body = document.createElement("div"); body.className = "body";
+        var nm = document.createElement("div"); nm.className = "name"; nm.textContent = it.name || "(unnamed — " + (it.code || "?") + ")";
+        var sub = document.createElement("div"); sub.className = "sub";
+        if (it.size) { var s1 = document.createElement("span"); s1.textContent = it.size; sub.appendChild(s1); }
+        if (it.full && it.full !== "unopened") { var s2 = document.createElement("span"); s2.textContent = FULL_LABEL[it.full] + " full"; sub.appendChild(s2); }
+        var eb = expBadge(it.exp); if (eb) sub.appendChild(eb);
+        if (it.note) { var s3 = document.createElement("span"); s3.textContent = it.note; sub.appendChild(s3); }
+        body.append(nm, sub);
+        el.append(bar, body);
+        if (it.qty > 1) { var qb = document.createElement("span"); qb.className = "qbadge"; qb.textContent = "×" + it.qty; el.appendChild(qb); }
+        el.onclick = function () { openSheet(it); };
+        invList.appendChild(el);
+      });
+    });
   }
 
-  // --- Detail sheet ---
+  document.getElementById("inv-add-btn").onclick = addByName;
+  document.getElementById("inv-add-name").addEventListener("keydown", function (e) { if (e.key === "Enter") addByName(); });
+  function addByName() {
+    var inp = document.getElementById("inv-add-name");
+    var v = inp.value.trim(); if (!v) return;
+    var it = newItem({ name: v });
+    data.items.unshift(it);
+    inp.value = "";
+    schedulePush(); renderAll(); openSheet(it);
+  }
+
+  function newItem(patch) {
+    var base = { id: "i" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      name: "", cat: "pantry", full: "unopened", qty: 1 };
+    Object.keys(patch || {}).forEach(function (k) { base[k] = patch[k]; });
+    return base;
+  }
+
   var overlay = document.getElementById("overlay");
   var sheetItem = null;
-  var dName = document.getElementById("d-name");
-  var dLookup = document.getElementById("d-lookup");
-  var dQty = document.getElementById("d-qty");
-  var dFull = document.getElementById("d-full");
-  var dLoc = document.getElementById("d-loc");
-  var dExp = document.getElementById("d-exp");
+  var dName = document.getElementById("d-name"), dLookup = document.getElementById("d-lookup"),
+      dQty = document.getElementById("d-qty"), dFull = document.getElementById("d-full"),
+      dCat = document.getElementById("d-cat"), dExp = document.getElementById("d-exp");
 
-  function chipRow(container, options, get, set, allowOff) {
+  function chipRow(container, options, labels, get, set) {
     container.innerHTML = "";
     options.forEach(function (opt) {
       var b = document.createElement("button");
-      b.type = "button"; b.textContent = opt;
+      b.type = "button"; b.textContent = labels[opt];
       if (get() === opt) b.classList.add("on");
       b.onclick = function () {
-        set(allowOff && get() === opt ? "" : opt);
-        persist(); render();
-        chipRow(container, options, get, set, allowOff);
+        set(opt); schedulePush(); renderInventory();
+        chipRow(container, options, labels, get, set);
       };
       container.appendChild(b);
     });
@@ -380,96 +501,232 @@
   function updateSheetLookup(it) {
     if (sheetItem !== it) return;
     dLookup.classList.remove("found");
-    if (it.looking) { dLookup.textContent = "Looking up barcode…"; }
-    else if (it.found) {
+    if (it._looking) dLookup.textContent = "Looking up barcode…";
+    else if (it._found) {
       dLookup.textContent = "✓ Found" + (it.size ? " — " + it.size : "");
       dLookup.classList.add("found");
       if (!dName.matches(":focus")) dName.value = it.name;
     }
-    else if (it.code && it.found === false) {
-      dLookup.textContent = "Not in the database — name it if you can, or Claude will research the code.";
-    }
-    else { dLookup.textContent = ""; }
+    else if (it.code && it._found === false)
+      dLookup.textContent = "Not in the database — name it, or Claude will research code " + it.code + ".";
+    else dLookup.textContent = it.code ? "Barcode " + it.code : "";
   }
 
-  function syncSheet(it) {
+  function openSheet(it) {
+    sheetItem = it;
     dName.value = it.name || "";
     dQty.textContent = it.qty;
     dExp.value = it.exp || "";
-    chipRow(dFull, FULLNESS, function () { return it.full; }, function (v) { it.full = v; }, false);
-    chipRow(dLoc, LOCATIONS, function () { return it.loc; }, function (v) { it.loc = v; }, true);
+    chipRow(dFull, FULLNESS, FULL_LABEL, function () { return it.full; }, function (v) { it.full = v; });
+    chipRow(dCat, CATS, CAT_LABEL, function () { return it.cat; }, function (v) { it.cat = v; });
     updateSheetLookup(it);
-  }
-
-  function openSheet(it, isNew) {
-    sheetItem = it;
-    syncSheet(it);
     overlay.hidden = false;
-    if (!isNew) dName.focus();
   }
-  function closeSheet() {
-    sheetItem = null; overlay.hidden = true;
-    persist(); render();
-  }
+  function closeSheet() { sheetItem = null; overlay.hidden = true; renderAll(); }
   overlay.addEventListener("click", function (e) { if (e.target === overlay) closeSheet(); });
   document.getElementById("d-done").onclick = closeSheet;
   document.getElementById("d-remove").onclick = function () {
-    var i = items.indexOf(sheetItem);
-    if (i !== -1) items.splice(i, 1);
+    var i = data.items.indexOf(sheetItem);
+    if (i !== -1) { data.items.splice(i, 1); schedulePush(); }
     closeSheet();
   };
-  dName.addEventListener("input", function () {
-    if (sheetItem) { sheetItem.name = dName.value; persist(); }
-  });
-  dName.addEventListener("blur", function () { render(); });
+  document.getElementById("d-usedup").onclick = function () {
+    var i = data.items.indexOf(sheetItem);
+    if (i !== -1) {
+      data.shopping.push({ name: sheetItem.name || ("code " + sheetItem.code), reason: "used up" });
+      data.items.splice(i, 1); schedulePush();
+    }
+    closeSheet();
+  };
+  dName.addEventListener("input", function () { if (sheetItem) { sheetItem.name = dName.value; schedulePush(); } });
   dExp.addEventListener("change", function () {
-    if (sheetItem) { sheetItem.exp = dExp.value; persist(); render(); }
+    if (sheetItem) {
+      if (dExp.value) sheetItem.exp = dExp.value; else delete sheetItem.exp;
+      schedulePush(); renderInventory();
+    }
   });
   document.getElementById("d-minus").onclick = function () {
-    if (sheetItem && sheetItem.qty > 1) { sheetItem.qty--; dQty.textContent = sheetItem.qty; persist(); render(); }
+    if (sheetItem && sheetItem.qty > 1) { sheetItem.qty--; dQty.textContent = sheetItem.qty; schedulePush(); renderInventory(); }
   };
   document.getElementById("d-plus").onclick = function () {
-    if (sheetItem) { sheetItem.qty++; dQty.textContent = sheetItem.qty; persist(); render(); }
+    if (sheetItem) { sheetItem.qty++; dQty.textContent = sheetItem.qty; schedulePush(); renderInventory(); }
   };
 
-  // --- Camera + decoding ---
+  var shopList = document.getElementById("shop-list");
+  function renderShopping() {
+    shopList.innerHTML = "";
+    if (!data.shopping.length) {
+      shopList.innerHTML = '<div class="empty">Shopping list is empty.</div>'; return;
+    }
+    data.shopping.forEach(function (s) {
+      var el = document.createElement("div"); el.className = "shop-item" + (s.done ? " done" : "");
+      var cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = !!s.done;
+      cb.onchange = function () { s.done = cb.checked; schedulePush(); renderShopping(); };
+      var body = document.createElement("div"); body.className = "body";
+      var nm = document.createElement("div"); nm.textContent = s.name;
+      body.appendChild(nm);
+      if (s.reason) { var r = document.createElement("div"); r.className = "reason"; r.textContent = s.reason; body.appendChild(r); }
+      el.append(cb, body);
+      shopList.appendChild(el);
+    });
+  }
+  document.getElementById("shop-add-btn").onclick = shopAdd;
+  document.getElementById("shop-add-name").addEventListener("keydown", function (e) { if (e.key === "Enter") shopAdd(); });
+  function shopAdd() {
+    var inp = document.getElementById("shop-add-name");
+    var v = inp.value.trim(); if (!v) return;
+    data.shopping.push({ name: v });
+    inp.value = ""; schedulePush(); renderShopping();
+  }
+  document.getElementById("shop-clear-done").onclick = function () {
+    data.shopping = data.shopping.filter(function (s) { return !s.done; });
+    schedulePush(); renderShopping();
+  };
+
+  var recipesLoaded = false;
+  function loadRecipes() {
+    var list = document.getElementById("recipe-list");
+    if (!token) { list.innerHTML = '<div class="empty">Add your GitHub token in Setup first.</div>'; return; }
+    fetch(API + "/repos/" + REPO + "/contents/recipes?ref=" + encodeURIComponent(BRANCH), { headers: ghHeaders() })
+      .then(function (r) { return r.ok ? r.json() : []; })
+      .then(function (files) {
+        recipesLoaded = true;
+        list.innerHTML = "";
+        var mds = (files || []).filter(function (f) { return f.name && f.name.endsWith(".md"); });
+        if (!mds.length) { list.innerHTML = '<div class="empty">No recipes saved yet — ask Claude for one.</div>'; return; }
+        mds.forEach(function (f) {
+          var el = document.createElement("div"); el.className = "recipe-link";
+          el.textContent = f.name.replace(/\.md$/, "").replace(/-/g, " ");
+          el.onclick = function () { openRecipe(f.path); };
+          list.appendChild(el);
+        });
+      })
+      .catch(function () { list.innerHTML = '<div class="empty">Couldn\'t load recipes.</div>'; });
+  }
+  function openRecipe(path) {
+    fetch(API + "/repos/" + REPO + "/contents/" + path + "?ref=" + encodeURIComponent(BRANCH), { headers: ghHeaders() })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        document.getElementById("recipe-list").hidden = true;
+        var v = document.getElementById("recipe-view"); v.hidden = false;
+        document.getElementById("recipe-body").textContent = b64decode(j.content);
+      });
+  }
+  document.getElementById("recipe-back").onclick = function () {
+    document.getElementById("recipe-view").hidden = true;
+    document.getElementById("recipe-list").hidden = false;
+  };
+
+  var tokenInput = document.getElementById("gh-token");
+  if (token) tokenInput.value = token;
+  document.getElementById("token-save").onclick = function () {
+    token = tokenInput.value.trim();
+    try { localStorage.setItem("gh-token", token); } catch (e) {}
+    document.getElementById("settings-status").textContent = "Checking…";
+    pull().then(function (ok) {
+      document.getElementById("settings-status").textContent =
+        ok ? "✓ Connected — inventory loaded from the Kitchen repo." :
+             "Couldn't reach the repo. Check the token's repository access (Kitchen) and Contents read/write permission.";
+    });
+  };
+  document.getElementById("token-clear").onclick = function () {
+    token = ""; tokenInput.value = "";
+    try { localStorage.removeItem("gh-token"); } catch (e) {}
+    setChip("no token — see Setup", "err");
+  };
+
+  var toastEl = document.getElementById("vf-toast"), toastTimer = null;
+  function toast(msg) {
+    toastEl.textContent = msg; toastEl.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toastEl.classList.remove("show"); }, 1600);
+  }
+
+  var offCache = {};
+  function offLookup(codeVal) {
+    if (offCache[codeVal]) return offCache[codeVal];
+    var tryCode = function (c) {
+      return fetch("https://world.openfoodfacts.org/api/v2/product/" + c +
+        ".json?fields=product_name,product_name_en,brands,quantity")
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) { return (j && j.status === 1 && j.product) ? j.product : null; })
+        .catch(function () { return null; });
+    };
+    var p = tryCode(codeVal).then(function (prod) {
+      if (prod || codeVal.length !== 12) return prod;
+      return tryCode("0" + codeVal);
+    }).then(function (prod) {
+      if (!prod) return null;
+      var name = (prod.product_name_en || prod.product_name || "").trim();
+      var brand = (prod.brands || "").split(",")[0].trim();
+      if (brand && name.toLowerCase().indexOf(brand.toLowerCase()) === -1) name = brand + " " + name;
+      return { name: name, size: (prod.quantity || "").trim() };
+    });
+    offCache[codeVal] = p;
+    return p;
+  }
+
+  var lastCode = "", lastAt = 0;
+  function onScan(codeVal) {
+    var now = Date.now();
+    if (codeVal === lastCode && now - lastAt < 2500) return;
+    lastCode = codeVal; lastAt = now;
+    if (navigator.vibrate) { try { navigator.vibrate(60); } catch (e) {} }
+    var existing = data.items.find(function (it) { return it.code === codeVal; });
+    if (existing) {
+      existing.qty++;
+      toast((existing.name || codeVal) + " ×" + existing.qty);
+      schedulePush(); renderAll();
+      return;
+    }
+    var it = newItem({ code: codeVal });
+    data.items.unshift(it);
+    schedulePush(); renderAll();
+    openSheet(it);
+    it._looking = true; updateSheetLookup(it);
+    offLookup(codeVal).then(function (info) {
+      it._looking = false;
+      if (info && info.name) {
+        if (!it.name) it.name = info.name;
+        if (info.size) it.size = info.size;
+        it._found = true;
+        schedulePush(); renderAll();
+      } else { it._found = false; }
+      updateSheetLookup(it);
+    });
+  }
+
   var video = document.getElementById("video");
   var FORMATS = ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39", "itf", "qr_code"];
-
   document.getElementById("start-btn").onclick = startCamera;
 
   function cameraFail(text) {
     var msg = document.getElementById("vf-msg");
-    msg.hidden = false;
-    msg.innerHTML = "";
-    var p = document.createElement("div");
-    p.textContent = text;
-    var b = document.createElement("button"); b.className = "primary";
+    msg.hidden = false; msg.innerHTML = "";
+    var p = document.createElement("div"); p.textContent = text;
+    var b = document.createElement("button"); b.className = "btn primary";
     b.textContent = "📸 Snap a barcode photo";
     b.onclick = function () { document.getElementById("photo-input").click(); };
-    var r = document.createElement("button"); r.textContent = "Retry live camera";
+    var r = document.createElement("button"); r.className = "btn"; r.textContent = "Retry live camera";
     r.onclick = startCamera;
     msg.append(p, b, r);
   }
 
   function startCamera() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      cameraFail("Live video isn't available here — use photo mode instead.");
-      return;
+      cameraFail("Live video isn't available here — use photo mode."); return;
     }
     document.getElementById("vf-msg").hidden = true;
     navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
-      audio: false
+      video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false
     }).then(function (stream) {
-      video.srcObject = stream;
-      return video.play();
+      video.srcObject = stream; return video.play();
     }).then(function () {
       document.getElementById("scanline").hidden = false;
-      if ("BarcodeDetector" in window) { nativeLoop(); } else { zxingLoop(); }
+      if ("BarcodeDetector" in window) nativeLoop(); else zxingLoop();
     }).catch(function (err) {
       cameraFail((err && err.name === "NotAllowedError")
-        ? "Camera permission was denied. Allow camera access for this page in your browser settings and retry — or use photo mode."
+        ? "Camera permission denied — allow it in browser settings and retry, or use photo mode."
         : "Couldn't start live video (" + (err && err.name || "error") + "). Use photo mode instead.");
     });
   }
@@ -491,7 +748,7 @@
   }
 
   function zxingLoop() {
-    if (!window.ZXing) { cameraFail("Barcode library didn't load (no internet?). Use photo mode or manual entry."); return; }
+    if (!window.ZXing) { cameraFail("Barcode library didn't load (offline?). Use photo mode."); return; }
     try {
       var hints = new Map();
       hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
@@ -507,7 +764,6 @@
     } catch (e) {}
   }
 
-  // --- Photo mode ---
   var photoInput = document.getElementById("photo-input");
   document.getElementById("photo-btn").onclick = function () { photoInput.click(); };
   photoInput.addEventListener("change", function () {
@@ -516,8 +772,8 @@
     if (!file) return;
     toast("Reading photo…");
     decodePhoto(file).then(function (codeVal) {
-      if (codeVal) { onScan(codeVal); }
-      else { toast("No barcode found — try closer, straight-on, good light"); }
+      if (codeVal) onScan(codeVal);
+      else toast("No barcode found — closer, straight-on, good light");
     });
   });
 
@@ -555,56 +811,19 @@
     }).then(function (codeVal) { URL.revokeObjectURL(url); return codeVal; });
   }
 
-  // --- Manual entry ---
   var manual = document.getElementById("manual");
-  function addManual() {
-    var v = manual.value.trim();
-    if (!v) return;
-    if (/^\d{6,14}$/.test(v)) { onScan(v); }
-    else {
-      var it = { code: "", name: v, brand: "", size: "", qty: 1,
-                 full: "Unopened", loc: "", exp: "", ts: Date.now() };
-      items.unshift(it); persist(); render();
-      openSheet(it, true);
-    }
+  document.getElementById("manual-add").onclick = manualAdd;
+  manual.addEventListener("keydown", function (e) { if (e.key === "Enter") manualAdd(); });
+  function manualAdd() {
+    var v = manual.value.trim(); if (!v) return;
+    if (/^\d{6,14}$/.test(v)) onScan(v);
+    else { var it = newItem({ name: v }); data.items.unshift(it); schedulePush(); renderAll(); openSheet(it); }
     manual.value = "";
   }
-  document.getElementById("manual-add").onclick = addManual;
-  manual.addEventListener("keydown", function (e) { if (e.key === "Enter") addManual(); });
 
-  // --- Export ---
-  function exportText() {
-    var lines = items.map(function (it) {
-      var parts = [];
-      parts.push((it.qty > 1 ? it.qty + "x " : "") + (it.name || "?"));
-      if (it.size) parts.push(it.size);
-      if (it.full && it.full !== "Unopened") parts.push(it.full + " full");
-      if (it.loc) parts.push(it.loc.toLowerCase());
-      if (it.exp) parts.push("exp " + it.exp);
-      var line = parts.join(", ");
-      if (it.code) line += " [" + it.code + "]";
-      return line;
-    });
-    return "KITCHEN SCAN LIST (" + new Date().toISOString().slice(0, 10) + ")\n" + lines.join("\n");
-  }
-  copyBtn.onclick = function () {
-    var text = exportText();
-    var box = document.getElementById("export-box");
-    box.hidden = false; box.value = text;
-    var done = function () { toast("Copied — paste it into your Claude chat"); };
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(done, function () { box.select(); });
-    } else { box.select(); }
-  };
-  document.getElementById("clear-btn").onclick = function () {
-    if (!items.length) return;
-    if (confirm("Clear all " + items.length + " scanned items?")) {
-      items = []; persist(); render();
-      document.getElementById("export-box").hidden = true;
-    }
-  };
-
-  render();
+  function renderAll() { renderInventory(); renderShopping(); }
+  renderAll();
+  if (token) pull(); else setChip("no token — see Setup", "err");
 })();
 </script>
 </body>
