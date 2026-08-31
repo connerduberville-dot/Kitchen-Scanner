@@ -249,6 +249,28 @@
   </section>
 
   <section class="tab" id="tab-recipes">
+    <div id="req-area">
+      <button class="btn primary" id="req-new-btn" style="width:100%">＋ New recipe request</button>
+      <div id="req-form" hidden>
+        <div class="rsec">What kind of request?</div>
+        <div class="chips" id="req-type"></div>
+        <div class="rsec">Name it</div>
+        <input type="text" id="req-title" placeholder="e.g. Chick-fil-A tender copycat">
+        <div class="rsec">Context for Claude</div>
+        <textarea id="req-context" rows="4"
+          placeholder="What you're going for, links, constraints, how many servings, what to compare…"
+          style="width:100%;font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px"></textarea>
+        <div class="rsec">Attach files (photos of recipes, screenshots, PDFs)</div>
+        <input type="file" id="req-files" multiple accept="image/*,.pdf,.txt,.md">
+        <div class="row">
+          <button class="btn" id="req-cancel">Cancel</button>
+          <button class="btn primary" id="req-send" style="flex:1">Send to Claude 📨</button>
+        </div>
+        <div class="muted" id="req-status"></div>
+      </div>
+      <div id="req-pending"></div>
+    </div>
+    <div class="rsec">Recipes</div>
     <div id="recipe-list"><div class="empty">Loading…</div></div>
     <div id="recipe-view" hidden>
       <button class="btn" id="recipe-back">← All recipes</button>
@@ -447,7 +469,7 @@
       b.classList.add("active");
       document.querySelectorAll(".tab").forEach(function (t) { t.classList.remove("active"); });
       document.getElementById("tab-" + b.dataset.tab).classList.add("active");
-      if (b.dataset.tab === "recipes" && !recipesLoaded) loadRecipes();
+      if (b.dataset.tab === "recipes") { if (!recipesLoaded) loadRecipes(); loadRequests(); }
     };
   });
 
@@ -791,12 +813,8 @@
         top.appendChild(el("span", "nm", ing.item));
         top.appendChild(el("span", "q", ing.qty || ""));
         row.appendChild(top);
-        var sub = el("div", "sub");
-        var a = document.createElement("a");
-        a.href = "https://www.instacart.com/store/wegmans/s?k=" + encodeURIComponent(ing.item);
-        a.target = "_blank"; a.rel = "noopener"; a.textContent = "find on Instacart →";
-        sub.appendChild(a);
-        row.appendChild(sub);
+        var lp2 = lastProduct(ing);
+        if (lp2) row.appendChild(el("div", "sub", "usual pick: " + lp2.product + (lp2.size ? " " + lp2.size : "")));
         body.appendChild(row);
       });
       var addBtn = el("button", "btn primary", "Add all " + needed.length + " to shopping list");
@@ -904,6 +922,128 @@
     document.getElementById("recipe-view").hidden = true;
     document.getElementById("recipe-list").hidden = false;
   };
+
+  // ---------- Recipe requests ----------
+  var REQ_TYPES = ["copycat", "existing recipe", "new recipe", "recipe selector", "recipe compare"];
+  var reqType = "copycat";
+  var reqForm = document.getElementById("req-form");
+  document.getElementById("req-new-btn").onclick = function () {
+    reqForm.hidden = !reqForm.hidden;
+    if (!reqForm.hidden) renderReqTypes();
+  };
+  document.getElementById("req-cancel").onclick = function () { reqForm.hidden = true; };
+  function renderReqTypes() {
+    var c = document.getElementById("req-type");
+    c.innerHTML = "";
+    REQ_TYPES.forEach(function (t) {
+      var b = document.createElement("button");
+      b.type = "button"; b.textContent = t;
+      if (t === reqType) b.classList.add("on");
+      b.onclick = function () { reqType = t; renderReqTypes(); };
+      c.appendChild(b);
+    });
+  }
+
+  function ghPutFile(path, base64Content, message) {
+    return fetch(API + "/repos/" + REPO + "/contents/" + path, {
+      method: "PUT", headers: ghHeaders(),
+      body: JSON.stringify({ message: message, branch: BRANCH, content: base64Content })
+    }).then(function (r) {
+      if (!r.ok) return r.json().then(function (j) {
+        throw new Error((j.message || "upload failed") + " (" + path + ")");
+      });
+      return r.json();
+    });
+  }
+  function fileToBase64(file) {
+    return new Promise(function (resolve, reject) {
+      var fr = new FileReader();
+      fr.onload = function () { resolve(String(fr.result).split(",")[1]); };
+      fr.onerror = reject;
+      fr.readAsDataURL(file);
+    });
+  }
+
+  document.getElementById("req-send").onclick = function () {
+    if (!token) { document.getElementById("req-status").textContent = "Add your GitHub token in Setup first."; return; }
+    var title = document.getElementById("req-title").value.trim();
+    var context = document.getElementById("req-context").value.trim();
+    if (!title && !context) { document.getElementById("req-status").textContent = "Give it a name or some context."; return; }
+    var btn = document.getElementById("req-send");
+    var status = document.getElementById("req-status");
+    btn.disabled = true;
+    var id = "req-" + Date.now().toString(36);
+    var files = Array.prototype.slice.call(document.getElementById("req-files").files || []);
+    var filePaths = [];
+    var chain = Promise.resolve();
+    files.forEach(function (f, i) {
+      chain = chain.then(function () {
+        status.textContent = "Uploading file " + (i + 1) + " of " + files.length + "…";
+        var safe = f.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+        var path = "requests/files/" + id + "-" + safe;
+        filePaths.push(path);
+        return fileToBase64(f).then(function (b64) {
+          return ghPutFile(path, b64, "app: recipe request file (" + id + ")");
+        });
+      });
+    });
+    chain.then(function () {
+      status.textContent = "Sending request…";
+      var req = {
+        id: id, type: reqType, title: title, context: context,
+        files: filePaths, status: "pending",
+        created: new Date().toISOString()
+      };
+      return ghPutFile("requests/" + id + ".json",
+        b64encode(JSON.stringify(req, null, 2) + "\n"),
+        "app: recipe request — " + (title || reqType));
+    }).then(function () {
+      btn.disabled = false;
+      status.textContent = "";
+      reqForm.hidden = true;
+      document.getElementById("req-title").value = "";
+      document.getElementById("req-context").value = "";
+      document.getElementById("req-files").value = "";
+      toast("Sent — Claude will pick it up");
+      loadRequests();
+    }).catch(function (e) {
+      btn.disabled = false;
+      status.textContent = "Failed: " + (e && e.message || e);
+    });
+  };
+
+  function loadRequests() {
+    var box = document.getElementById("req-pending");
+    if (!token) { box.innerHTML = ""; return; }
+    fetch(API + "/repos/" + REPO + "/contents/requests?ref=" + encodeURIComponent(BRANCH), { headers: ghHeaders() })
+      .then(function (r) { return r.ok ? r.json() : []; })
+      .then(function (files) {
+        box.innerHTML = "";
+        var reqs = (files || []).filter(function (f) { return f.name.endsWith(".json"); });
+        if (!reqs.length) return;
+        reqs.forEach(function (f) {
+          ghGetJson(f.path).then(function (res) {
+            var q = res.obj;
+            var row = document.createElement("div");
+            row.className = "ing " + (q.status === "done" ? "have" : "need");
+            var top = document.createElement("div"); top.className = "top";
+            var mark = document.createElement("span"); mark.className = "mark";
+            mark.textContent = q.status === "done" ? "✓" : "⏳";
+            var nm = document.createElement("span"); nm.className = "nm";
+            nm.textContent = (q.title || q.type) + " — " + q.status;
+            top.append(mark, nm);
+            row.appendChild(top);
+            if (q.response) {
+              var sub = document.createElement("div"); sub.className = "sub";
+              sub.textContent = q.response;
+              row.appendChild(sub);
+            }
+            box.appendChild(row);
+          }).catch(function () {});
+        });
+      })
+      .catch(function () {});
+  }
 
   var aiKeyInput = document.getElementById("ai-key");
   if (aiKey) aiKeyInput.value = aiKey;
