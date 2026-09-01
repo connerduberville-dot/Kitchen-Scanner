@@ -245,6 +245,9 @@
       <button class="btn primary" id="shop-bought" style="flex:1">✓ Bought — add to kitchen</button>
       <button class="btn" id="shop-clear-done">Remove checked</button>
     </div>
+    <a href="https://www.instacart.com/store/wegmans/storefront" target="_blank" rel="noopener"
+       class="btn" style="display:block;text-align:center;text-decoration:none;margin:10px 0 0">
+      🛒 Open my Wegmans cart on Instacart →</a>
     <p class="muted">Check items off as you buy them, then "Bought" moves them
       into the kitchen inventory (or scan them in for full details). The ✕
       dismisses an item without buying it.</p>
@@ -350,6 +353,12 @@
       <label class="lbl">Is this something from the shopping list? Tap to assign — crossed off when you hit Done</label>
       <div class="chips" id="d-shop"></div>
     </div>
+    <div id="d-verify-wrap" hidden>
+      <label class="lbl">⚠️ Needs your check</label>
+      <div class="muted" id="d-verify-text" style="margin-bottom:6px"></div>
+      <button class="btn primary" id="d-verify-ok" style="width:100%">Looks right ✓</button>
+    </div>
+    <div class="muted" id="d-profile" style="font-size:12.5px"></div>
     <div class="actions">
       <button class="btn rm" id="d-usedup">Used up 🛒</button>
       <button class="btn rm" id="d-remove">Remove</button>
@@ -529,9 +538,20 @@
         if (it.full && it.full !== "unopened") { var s2 = document.createElement("span"); s2.textContent = FULL_LABEL[it.full] + " full"; sub.appendChild(s2); }
         var eb = expBadge(it.exp); if (eb) sub.appendChild(eb);
         if (it.note) { var s3 = document.createElement("span"); s3.textContent = it.note; sub.appendChild(s3); }
+        if (it.recipes && it.recipes.length) {
+          var s4 = document.createElement("span");
+          s4.textContent = "used in " + it.recipes.length + " recipe" + (it.recipes.length > 1 ? "s" : "");
+          sub.appendChild(s4);
+        }
+        if (it.verify) {
+          var vb = document.createElement("span"); vb.className = "exp-soon";
+          vb.textContent = "⚠️ " + it.verify;
+          sub.appendChild(vb);
+        }
         body.append(nm, sub);
         el.append(bar, body);
         if (it.qty > 1) { var qb = document.createElement("span"); qb.className = "qbadge"; qb.textContent = "×" + it.qty; el.appendChild(qb); }
+        if (it.verify) { var vi = document.createElement("span"); vi.textContent = "⚠️"; vi.style.flex = "none"; el.appendChild(vi); }
         if (!it.code) {
           var cam = document.createElement("button");
           cam.className = "shop-x"; cam.textContent = "📷"; cam.style.fontSize = "16px";
@@ -629,9 +649,24 @@
     chipRow(dFull, FULLNESS, FULL_LABEL, function () { return it.full; }, function (v) { it.full = v; });
     chipRow(dCat, CATS, CAT_LABEL, function () { return it.cat; }, function (v) { it.cat = v; });
     renderSheetShop(it);
+    var vw = document.getElementById("d-verify-wrap");
+    vw.hidden = !it.verify;
+    if (it.verify) document.getElementById("d-verify-text").textContent = it.verify;
+    var prof = [];
+    if (it.wegmans) prof.push("Wegmans product: " + it.wegmans);
+    if (it.recipes && it.recipes.length) prof.push("Used in: " + it.recipes.join(", "));
+    if (it.code) prof.push("Barcode " + it.code);
+    document.getElementById("d-profile").textContent = prof.join(" · ");
     updateSheetLookup(it);
     overlay.hidden = false;
   }
+  document.getElementById("d-verify-ok").onclick = function () {
+    if (!sheetItem) return;
+    delete sheetItem.verify;
+    document.getElementById("d-verify-wrap").hidden = true;
+    schedulePush(); renderInventory();
+    toast("Verified ✓");
+  };
   function closeSheet() {
     if (sheetShopSel != null && sheetItem) fulfillShopping(sheetShopSel, sheetItem);
     sheetShopSel = null; sheetShopTouched = false;
@@ -939,6 +974,7 @@
 
     if (needed.length) {
       body.appendChild(el("div", "rsec", "Need from Wegmans (" + needed.length + ")"));
+      var useSub = {}; // ingredient item -> true when Conner picks the on-hand substitute
       needed.forEach(function (ing) {
         var row = el("div", "ing need");
         var top = el("div", "top");
@@ -946,20 +982,43 @@
         top.appendChild(el("span", "nm", ing.item));
         top.appendChild(el("span", "q", ing.qty || ""));
         row.appendChild(top);
-        var lp2 = lastProduct(ing);
-        if (lp2) row.appendChild(el("div", "sub", "usual pick: " + lp2.product + (lp2.size ? " " + lp2.size : "")));
+        var buyTxt = ing.buy || (function () {
+          var lp2 = lastProduct(ing);
+          return lp2 ? lp2.product + (lp2.size ? " " + lp2.size : "") : null;
+        })();
+        if (buyTxt) row.appendChild(el("div", "sub", "buy: " + buyTxt));
+        if (ing.sub) {
+          var chips = el("div", "chips"); chips.style.marginTop = "6px";
+          var renderChoice = function () {
+            chips.innerHTML = "";
+            var b1 = el("button", null, "Buy it");
+            var b2 = el("button", null, "Use: " + ing.sub);
+            (useSub[ing.item] ? b2 : b1).classList.add("on");
+            b1.onclick = function () { useSub[ing.item] = false; renderChoice(); };
+            b2.onclick = function () { useSub[ing.item] = true; renderChoice(); };
+            chips.append(b1, b2);
+          };
+          renderChoice();
+          row.appendChild(chips);
+        }
         body.appendChild(row);
       });
-      var addBtn = el("button", "btn primary", "Add all " + needed.length + " to shopping list");
+      var addBtn = el("button", "btn primary", "Add needed items to shopping list");
       addBtn.style.width = "100%"; addBtn.style.marginTop = "4px";
       addBtn.onclick = function () {
-        var added = 0;
+        var added = 0, skipped = 0;
         needed.forEach(function (ing) {
-          var dup = data.shopping.some(function (s) { return s.name.toLowerCase() === ing.item.toLowerCase(); });
-          if (!dup) { data.shopping.push({ name: ing.item, reason: "for " + r.title }); added++; }
+          if (useSub[ing.item]) { skipped++; return; }
+          var want = (ing.buy || ing.item).toLowerCase();
+          var dup = data.shopping.some(function (s) {
+            var n = s.name.toLowerCase();
+            return n === want || n === ing.item.toLowerCase();
+          });
+          if (!dup) { data.shopping.push({ name: ing.buy || ing.item, reason: "for " + r.title }); added++; }
         });
         if (added) { schedulePush(); renderShopping(); }
-        toast(added ? "Added " + added + " to shopping list" : "Already on the list");
+        toast((added ? "Added " + added : "Nothing new") +
+          (skipped ? " · using " + skipped + " substitute" + (skipped > 1 ? "s" : "") : ""));
       };
       body.appendChild(addBtn);
     } else {
@@ -1329,6 +1388,7 @@
       var dup = data.items.find(function (i) { return i.code === codeVal && i !== tgt; });
       if (dup) { toast("That barcode already belongs to: " + (dup.name || codeVal)); return; }
       tgt.code = codeVal;
+      delete tgt.verify; // a real scan is the verification
       toast("✓ Barcode linked to " + (tgt.name || "item"));
       schedulePush(); renderAll();
       offLookup(codeVal).then(function (info) {
