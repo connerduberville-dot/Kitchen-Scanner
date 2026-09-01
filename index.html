@@ -1614,6 +1614,7 @@
       if (dup) { toast("That barcode already belongs to: " + (dup.name || codeVal)); return; }
       tgt.code = codeVal;
       delete tgt.verify; // a real scan is the verification
+      delete tgt.nobarcode;
       toast("✓ Barcode linked to " + (tgt.name || "item"));
       schedulePush(); renderAll();
       offLookup(codeVal).then(function (info) {
