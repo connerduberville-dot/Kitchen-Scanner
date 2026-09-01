@@ -347,7 +347,7 @@
       <input type="date" id="d-exp">
     </div>
     <div id="d-shop-wrap" hidden>
-      <label class="lbl">Bought from the shopping list? Tap to cross off</label>
+      <label class="lbl">Is this something from the shopping list? Tap to assign — crossed off when you hit Done</label>
       <div class="chips" id="d-shop"></div>
     </div>
     <div class="actions">
@@ -532,6 +532,14 @@
         body.append(nm, sub);
         el.append(bar, body);
         if (it.qty > 1) { var qb = document.createElement("span"); qb.className = "qbadge"; qb.textContent = "×" + it.qty; el.appendChild(qb); }
+        if (!it.code) {
+          var cam = document.createElement("button");
+          cam.className = "shop-x"; cam.textContent = "📷"; cam.style.fontSize = "16px";
+          cam.title = "No barcode yet — scan one to link it";
+          cam.setAttribute("aria-label", "Link a barcode to " + (it.name || "this item"));
+          cam.onclick = function (e) { e.stopPropagation(); startAssignScan(it); };
+          el.appendChild(cam);
+        }
         el.onclick = function () { openSheet(it); };
         invList.appendChild(el);
       });
@@ -590,26 +598,31 @@
     else dLookup.textContent = it.code ? "Barcode " + it.code : "";
   }
 
+  var sheetShopSel = null, sheetShopTouched = false;
   function renderSheetShop(it) {
     var wrap = document.getElementById("d-shop-wrap");
     var box = document.getElementById("d-shop");
     var open = data.shopping.map(function (s, i) { return { s: s, i: i }; })
       .filter(function (e) { return !e.s.done; });
-    if (!open.length) { wrap.hidden = true; return; }
+    if (!open.length) { wrap.hidden = true; sheetShopSel = null; return; }
     wrap.hidden = false;
     box.innerHTML = "";
-    var suggested = matchShopping(it.name || "");
     open.forEach(function (e) {
       var b = document.createElement("button");
       b.type = "button"; b.textContent = e.s.name;
-      if (e.i === suggested) b.classList.add("on");
-      b.onclick = function () { fulfillShopping(e.i, it); renderSheetShop(it); };
+      if (e.i === sheetShopSel) b.classList.add("on");
+      b.onclick = function () {
+        sheetShopTouched = true;
+        sheetShopSel = (sheetShopSel === e.i) ? null : e.i; // tap again to unselect
+        renderSheetShop(it);
+      };
       box.appendChild(b);
     });
   }
 
   function openSheet(it) {
     sheetItem = it;
+    sheetShopSel = null; sheetShopTouched = false;
     dName.value = it.name || "";
     dQty.textContent = it.qty;
     dExp.value = it.exp || "";
@@ -619,12 +632,17 @@
     updateSheetLookup(it);
     overlay.hidden = false;
   }
-  function closeSheet() { sheetItem = null; overlay.hidden = true; renderAll(); }
+  function closeSheet() {
+    if (sheetShopSel != null && sheetItem) fulfillShopping(sheetShopSel, sheetItem);
+    sheetShopSel = null; sheetShopTouched = false;
+    sheetItem = null; overlay.hidden = true; renderAll();
+  }
   overlay.addEventListener("click", function (e) { if (e.target === overlay) closeSheet(); });
   document.getElementById("d-done").onclick = closeSheet;
   document.getElementById("d-remove").onclick = function () {
     var i = data.items.indexOf(sheetItem);
     if (i !== -1) { data.items.splice(i, 1); schedulePush(); }
+    sheetShopSel = null; // removing the item shouldn't cross anything off
     closeSheet();
   };
   document.getElementById("d-usedup").onclick = function () {
@@ -633,6 +651,7 @@
       data.shopping.push({ name: sheetItem.name || ("code " + sheetItem.code), reason: "used up" });
       data.items.splice(i, 1); schedulePush();
     }
+    sheetShopSel = null;
     closeSheet();
   };
   dName.addEventListener("input", function () { if (sheetItem) { sheetItem.name = dName.value; schedulePush(); } });
@@ -678,19 +697,31 @@
     if (item && (item.code || item.name)) logScannedProduct(s, item);
   }
 
-  // --- Targeted "scan this shopping item" mode ---
-  var fulfillTarget = null;
+  // --- Targeted scan modes (fulfill a shopping entry / link a barcode to an item) ---
+  var fulfillTarget = null, assignTargetId = null;
   var fulfillBanner = document.getElementById("fulfill-banner");
   fulfillBanner.onclick = clearFulfillTarget;
-  function startFulfillScan(idx) {
-    fulfillTarget = idx;
-    fulfillBanner.hidden = false;
-    fulfillBanner.textContent = "📷 Scanning for: " + data.shopping[idx].name + " — tap to cancel";
+  function gotoScanTab() {
     var scanBtn = document.querySelector('nav button[data-tab="scan"]');
     if (scanBtn) scanBtn.click();
   }
+  function startFulfillScan(idx) {
+    clearFulfillTarget();
+    fulfillTarget = idx;
+    fulfillBanner.hidden = false;
+    fulfillBanner.textContent = "📷 Scanning for: " + data.shopping[idx].name + " — tap to cancel";
+    gotoScanTab();
+  }
+  function startAssignScan(it) {
+    clearFulfillTarget();
+    assignTargetId = it.id;
+    fulfillBanner.hidden = false;
+    fulfillBanner.textContent = "📷 Scan the barcode on: " + (it.name || "this item") + " — tap to cancel";
+    gotoScanTab();
+  }
   function clearFulfillTarget() {
     fulfillTarget = null;
+    assignTargetId = null;
     fulfillBanner.hidden = true;
   }
 
@@ -1290,18 +1321,40 @@
     if (codeVal === lastCode && now - lastAt < 2500) return;
     lastCode = codeVal; lastAt = now;
     if (navigator.vibrate) { try { navigator.vibrate(60); } catch (e) {} }
+    // Mode: link this barcode to an existing (code-less) inventory item
+    if (assignTargetId) {
+      var tgt = data.items.find(function (i) { return i.id === assignTargetId; });
+      clearFulfillTarget();
+      if (!tgt) return;
+      var dup = data.items.find(function (i) { return i.code === codeVal && i !== tgt; });
+      if (dup) { toast("That barcode already belongs to: " + (dup.name || codeVal)); return; }
+      tgt.code = codeVal;
+      toast("✓ Barcode linked to " + (tgt.name || "item"));
+      schedulePush(); renderAll();
+      offLookup(codeVal).then(function (info) {
+        if (!info) return;
+        if (!tgt.name && info.name) tgt.name = info.name;
+        if (!tgt.size && info.size) tgt.size = info.size;
+        schedulePush(); renderAll();
+      });
+      return;
+    }
+
     var target = fulfillTarget;
     var targetEntry = (target !== null) ? data.shopping[target] : null;
     var existing = data.items.find(function (it) { return it.code === codeVal; });
     if (existing) {
       existing.qty++;
       toast((existing.name || codeVal) + " ×" + existing.qty);
-      if (targetEntry) { fulfillShopping(target, existing); clearFulfillTarget(); }
-      else {
-        var me = matchShopping(existing.name);
-        if (me !== -1) fulfillShopping(me);
-      }
       schedulePush(); renderAll();
+      if (targetEntry) { fulfillShopping(target, existing); clearFulfillTarget(); }
+      else if (data.shopping.some(function (s) { return !s.done; })) {
+        // ask: does this fulfill something on the list?
+        openSheet(existing);
+        var sug = matchShopping(existing.name);
+        sheetShopSel = (sug === -1) ? null : sug;
+        renderSheetShop(existing);
+      }
       return;
     }
     var it = newItem({ code: codeVal });
@@ -1319,9 +1372,11 @@
           // bind this scan to the chosen shopping entry, with the resolved product info
           if (!targetEntry.done) { targetEntry.done = true; targetEntry.scanned = true; renderShopping(); toast("✓ Crossed off: " + targetEntry.name); }
           logScannedProduct(targetEntry, it);
-        } else {
-          var mi = matchShopping(it.name);
-          if (mi !== -1) fulfillShopping(mi);
+        } else if (sheetItem === it && !sheetShopTouched) {
+          // suggest, don't decide: pre-select the best list match for the user to confirm
+          var sug2 = matchShopping(it.name);
+          if (sug2 !== -1) sheetShopSel = sug2;
+          renderSheetShop(it);
         }
         schedulePush(); renderAll();
         if (sheetItem === it) renderSheetShop(it);
