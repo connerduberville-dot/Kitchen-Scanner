@@ -170,11 +170,23 @@
     padding: 12px; font-size: 14px; white-space: pre-wrap; margin-top: 8px;
   }
 
-  #overlay {
+  #overlay, #ing-overlay {
     position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 10;
     display: flex; align-items: flex-end; justify-content: center;
   }
-  #overlay[hidden] { display: none !important; }
+  #overlay[hidden], #ing-overlay[hidden] { display: none !important; }
+  #ing-sheet {
+    background: var(--bg); width: 100%; max-width: 560px;
+    border-radius: 18px 18px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+    display: flex; flex-direction: column; gap: 10px; max-height: 86vh; overflow-y: auto;
+  }
+  #ing-sheet h3 { margin: 0; font-size: 17px; }
+  .pcard {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 10px 12px; font-size: 13.5px;
+  }
+  .pcard .t { font-weight: 700; margin-bottom: 2px; }
+  .pcard .l { color: var(--muted); }
   #sheet {
     background: var(--bg); width: 100%; max-width: 560px;
     border-radius: 18px 18px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
@@ -365,6 +377,10 @@
       <button class="btn primary" id="d-done">Done</button>
     </div>
   </div>
+</div>
+
+<div id="ing-overlay" hidden>
+  <div id="ing-sheet" role="dialog" aria-label="Ingredient details"></div>
 </div>
 
 <script>
@@ -955,20 +971,9 @@
       if (have) subBits.push("have: " + m.name + (m.full && m.full !== "unopened" ? " (" + m.full + ")" : ""));
       else if (ing.pantry) subBits.push("staple — check your stock");
       if (ing.note) subBits.push(ing.note);
-      var lp = lastProduct(ing);
-      if (lp) subBits.push("last time: " + lp.product + (lp.size ? " " + lp.size : ""));
       if (subBits.length) row.appendChild(el("div", "sub", subBits.join(" · ")));
-      var log = el("button", "logbtn", "log product used");
-      log.onclick = function () {
-        var def = have ? m.name : (lp ? lp.product : "");
-        var v = window.prompt("Exact product used for \"" + ing.item + "\":", def);
-        if (!v) return;
-        var key = ing.item.toLowerCase();
-        products[key] = products[key] || [];
-        products[key].push({ product: v.trim(), date: new Date().toISOString().slice(0, 10), recipe: r.slug || r.title });
-        saveProducts().then(function () { toast("Logged"); renderRecipe(); });
-      };
-      row.appendChild(log);
+      row.style.cursor = "pointer";
+      row.onclick = function () { openIngSheet(ing); };
       body.appendChild(row);
     });
 
@@ -1139,6 +1144,121 @@
     document.getElementById("recipe-view").hidden = true;
     document.getElementById("recipe-list").hidden = false;
   };
+
+  // ---------- Ingredient profile sheet ----------
+  var ingOverlay = document.getElementById("ing-overlay");
+  var ingSheet = document.getElementById("ing-sheet");
+  ingOverlay.addEventListener("click", function (e) { if (e.target === ingOverlay) ingOverlay.hidden = true; });
+
+  function openIngSheet(ing) {
+    function el(tag, cls, text) {
+      var e = document.createElement(tag);
+      if (cls) e.className = cls;
+      if (text != null) e.textContent = text;
+      return e;
+    }
+    ingSheet.innerHTML = "";
+    var h = el("h3", null, ing.item);
+    ingSheet.appendChild(h);
+    var meta = [ing.qty, ing.note].filter(Boolean).join(" · ");
+    if (meta) ingSheet.appendChild(el("div", "muted", meta));
+
+    var buyCard = el("div", "pcard");
+    buyCard.appendChild(el("div", "t", "🛒 Product to buy"));
+    buyCard.appendChild(el("div", ing.buy ? null : "l", ing.buy || "No product linked yet"));
+    ingSheet.appendChild(buyCard);
+
+    if (ing.sub) {
+      var subCard = el("div", "pcard");
+      subCard.appendChild(el("div", "t", "🔁 On-hand substitute"));
+      subCard.appendChild(el("div", null, ing.sub));
+      ingSheet.appendChild(subCard);
+    }
+
+    var m = findMatch(ing);
+    if (m) {
+      var card = el("div", "pcard");
+      card.appendChild(el("div", "t", "✓ In your kitchen: " + m.name));
+      var lines = [];
+      if (m.size) lines.push("Size: " + m.size);
+      lines.push((FULL_LABEL[m.full] || m.full) + " full · " + (CAT_LABEL[m.cat] || m.cat));
+      if (m.wegmans) lines.push("Wegmans product: " + m.wegmans);
+      if (m.code) lines.push("Barcode: " + m.code);
+      if (m.exp) lines.push("Best by: " + m.exp);
+      if (m.recipes && m.recipes.length) lines.push("Used in: " + m.recipes.join(", "));
+      lines.forEach(function (t) { card.appendChild(el("div", "l", t)); });
+      if (m.verify) card.appendChild(el("div", null, "⚠️ " + m.verify));
+      ingSheet.appendChild(card);
+    } else {
+      var linkCard = el("div", "pcard");
+      linkCard.appendChild(el("div", "t", "Nothing linked — pick the item you'd use"));
+      var search = document.createElement("input");
+      search.type = "search"; search.placeholder = "Filter your items…";
+      search.style.margin = "6px 0";
+      var chips = el("div", "chips");
+      var renderChips = function () {
+        var q = search.value.trim().toLowerCase();
+        chips.innerHTML = "";
+        data.items
+          .filter(function (it) { return !q || (it.name || "").toLowerCase().includes(q); })
+          .slice(0, q ? 30 : 12)
+          .forEach(function (it) {
+            var b = el("button", null, it.name || "(unnamed)");
+            b.type = "button";
+            b.onclick = function () { linkItemToIngredient(ing, it); };
+            chips.appendChild(b);
+          });
+        if (!chips.children.length) chips.appendChild(el("span", "muted", "No matches."));
+      };
+      search.addEventListener("input", renderChips);
+      renderChips();
+      linkCard.append(search, chips);
+      ingSheet.appendChild(linkCard);
+    }
+
+    var hist = products[ing.item.toLowerCase()];
+    if (hist && hist.length) {
+      var hc = el("div", "pcard");
+      hc.appendChild(el("div", "t", "📜 Product history"));
+      hist.slice(-4).reverse().forEach(function (p) {
+        hc.appendChild(el("div", "l",
+          p.product + (p.size ? " " + p.size : "") + " · " + p.date + (p.recipe ? " · " + p.recipe : "")));
+      });
+      ingSheet.appendChild(hc);
+    }
+
+    var close = el("button", "btn primary", "Close");
+    close.style.width = "100%";
+    close.onclick = function () { ingOverlay.hidden = true; };
+    ingSheet.appendChild(close);
+    ingOverlay.hidden = false;
+  }
+
+  function linkItemToIngredient(ing, it) {
+    ing.match = ing.match || [];
+    var kw = (it.name || "").toLowerCase();
+    if (kw && ing.match.indexOf(kw) === -1) ing.match.push(kw);
+    it.recipes = it.recipes || [];
+    var slug = currentRecipe.slug || currentRecipe.title;
+    if (it.recipes.indexOf(slug) === -1) it.recipes.push(slug);
+    schedulePush(); // persists the item's recipes link
+    var done = function () {
+      toast("✓ Linked " + it.name + " to " + ing.item);
+      ingOverlay.hidden = true;
+      renderRecipe();
+    };
+    if (currentRecipePath) {
+      fetch(API + "/repos/" + REPO + "/contents/" + currentRecipePath + "?ref=" + encodeURIComponent(BRANCH) + "&t=" + Date.now(),
+        { headers: ghHeaders(), cache: "no-store" })
+        .then(function (r2) { return r2.json(); })
+        .then(function (j) {
+          return ghPutJson(currentRecipePath, currentRecipe, j.sha,
+            "app: link " + (it.name || "item") + " to " + ing.item + " in " + slug);
+        })
+        .then(done)
+        .catch(function () { toast("Linked locally, but saving the recipe failed — try again"); });
+    } else done();
+  }
 
   // ---------- Recipe requests ----------
   var REQ_TYPES = ["copycat", "existing recipe", "new recipe", "recipe selector", "recipe compare"];
