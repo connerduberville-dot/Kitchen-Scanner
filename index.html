@@ -185,8 +185,24 @@
     background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
     padding: 10px 12px; font-size: 13.5px;
   }
-  .pcard .t { font-weight: 700; margin-bottom: 2px; }
+  .pcard .t {
+    font-weight: 700; margin-bottom: 4px; font-size: 11.5px;
+    text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+  }
   .pcard .l { color: var(--muted); }
+  .prop {
+    display: flex; justify-content: space-between; gap: 12px;
+    padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13.5px;
+  }
+  .prop:last-child { border-bottom: none; }
+  .prop .pl {
+    color: var(--muted); font-size: 11px; text-transform: uppercase;
+    letter-spacing: .06em; padding-top: 2px; flex: none;
+  }
+  .prop .pv { text-align: right; flex: 1; min-width: 0; overflow-wrap: anywhere; font-weight: 500; }
+  .prop .pv.warn { color: var(--flag); font-weight: 700; }
+  .pcard .acts { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .pcard .acts .btn { padding: 8px 12px; font-size: 13.5px; }
   #sheet {
     background: var(--bg); width: 100%; max-width: 560px;
     border-radius: 18px 18px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
@@ -358,8 +374,20 @@
       <div class="chips" id="d-cat"></div>
     </div>
     <div>
+      <label class="lbl" for="d-size">Size / unit</label>
+      <input type="text" id="d-size" placeholder="e.g. 16 oz · 750 ml · 2 lb bag" autocomplete="off">
+    </div>
+    <div>
+      <label class="lbl" for="d-note">Notes</label>
+      <input type="text" id="d-note" placeholder="Anything worth remembering" autocomplete="off">
+    </div>
+    <div>
       <label class="lbl" for="d-exp">Expiration / best-by (optional)</label>
       <input type="date" id="d-exp">
+    </div>
+    <div>
+      <label class="lbl">Barcode</label>
+      <div id="d-code-row" class="chips"></div>
     </div>
     <div id="d-shop-wrap" hidden>
       <label class="lbl">Is this something from the shopping list? Tap to assign — crossed off when you hit Done</label>
@@ -568,7 +596,7 @@
         el.append(bar, body);
         if (it.qty > 1) { var qb = document.createElement("span"); qb.className = "qbadge"; qb.textContent = "×" + it.qty; el.appendChild(qb); }
         if (it.verify) { var vi = document.createElement("span"); vi.textContent = "⚠️"; vi.style.flex = "none"; el.appendChild(vi); }
-        if (!it.code) {
+        if (!it.code && !it.nobarcode) {
           var cam = document.createElement("button");
           cam.className = "shop-x"; cam.textContent = "📷"; cam.style.fontSize = "16px";
           cam.title = "No barcode yet — scan one to link it";
@@ -664,6 +692,9 @@
     dExp.value = it.exp || "";
     chipRow(dFull, FULLNESS, FULL_LABEL, function () { return it.full; }, function (v) { it.full = v; });
     chipRow(dCat, CATS, CAT_LABEL, function () { return it.cat; }, function (v) { it.cat = v; });
+    document.getElementById("d-size").value = it.size || "";
+    document.getElementById("d-note").value = it.note || "";
+    renderCodeRow(it);
     renderSheetShop(it);
     var vw = document.getElementById("d-verify-wrap");
     vw.hidden = !it.verify;
@@ -676,6 +707,50 @@
     updateSheetLookup(it);
     overlay.hidden = false;
   }
+  function renderCodeRow(it) {
+    var row = document.getElementById("d-code-row");
+    row.innerHTML = "";
+    function chip(txt, on, fn) {
+      var b = document.createElement("button");
+      b.type = "button"; b.textContent = txt;
+      if (on) b.classList.add("on");
+      if (fn) b.onclick = fn; else b.disabled = true;
+      row.appendChild(b);
+    }
+    if (it.code) { chip("✓ " + it.code, true, null); return; }
+    if (it.nobarcode) {
+      chip("🚫 No barcode product", true, null);
+      chip("Actually, scan one", false, function () {
+        delete it.nobarcode; schedulePush();
+        closeSheet(); startAssignScan(it);
+      });
+      return;
+    }
+    chip("📷 Scan to link", false, function () { closeSheet(); startAssignScan(it); });
+    chip("🚫 Has no barcode", false, function () {
+      it.nobarcode = true;
+      if (it.verify === "scan the barcode to confirm") delete it.verify;
+      schedulePush(); renderCodeRow(it); renderInventory();
+      var vw2 = document.getElementById("d-verify-wrap");
+      vw2.hidden = !it.verify;
+    });
+  }
+  document.getElementById("d-size").addEventListener("input", function () {
+    if (sheetItem) {
+      var v = this.value.trim();
+      if (v) sheetItem.size = v; else delete sheetItem.size;
+      schedulePush();
+    }
+  });
+  document.getElementById("d-size").addEventListener("blur", renderInventory);
+  document.getElementById("d-note").addEventListener("input", function () {
+    if (sheetItem) {
+      var v = this.value.trim();
+      if (v) sheetItem.note = v; else delete sheetItem.note;
+      schedulePush();
+    }
+  });
+  document.getElementById("d-note").addEventListener("blur", renderInventory);
   document.getElementById("d-verify-ok").onclick = function () {
     if (!sheetItem) return;
     delete sheetItem.verify;
@@ -1157,37 +1232,67 @@
       if (text != null) e.textContent = text;
       return e;
     }
-    ingSheet.innerHTML = "";
-    var h = el("h3", null, ing.item);
-    ingSheet.appendChild(h);
-    var meta = [ing.qty, ing.note].filter(Boolean).join(" · ");
-    if (meta) ingSheet.appendChild(el("div", "muted", meta));
-
-    var buyCard = el("div", "pcard");
-    buyCard.appendChild(el("div", "t", "🛒 Product to buy"));
-    buyCard.appendChild(el("div", ing.buy ? null : "l", ing.buy || "No product linked yet"));
-    ingSheet.appendChild(buyCard);
-
-    if (ing.sub) {
-      var subCard = el("div", "pcard");
-      subCard.appendChild(el("div", "t", "🔁 On-hand substitute"));
-      subCard.appendChild(el("div", null, ing.sub));
-      ingSheet.appendChild(subCard);
+    function prop(card, label, value, warn) {
+      if (value == null || value === "") return;
+      var p = el("div", "prop");
+      p.appendChild(el("span", "pl", label));
+      p.appendChild(el("span", "pv" + (warn ? " warn" : ""), value));
+      card.appendChild(p);
     }
+    ingSheet.innerHTML = "";
+    ingSheet.appendChild(el("h3", null, ing.item));
+
+    // — the recipe's callout —
+    var callCard = el("div", "pcard");
+    callCard.appendChild(el("div", "t", "Recipe callout"));
+    prop(callCard, "Amount", ing.qty || "to taste");
+    prop(callCard, "Note", ing.note);
+    var flags = [ing.optional ? "optional" : null, ing.pantry ? "assumed staple" : null].filter(Boolean).join(" · ");
+    prop(callCard, "Flags", flags);
+    ingSheet.appendChild(callCard);
+
+    // — linked products —
+    var buyCard = el("div", "pcard");
+    buyCard.appendChild(el("div", "t", "🛒 Linked products"));
+    prop(buyCard, "Buy", ing.buy || "— none linked yet —", !ing.buy);
+    if (ing.sub) prop(buyCard, "Substitute", ing.sub);
+    var lastP = lastProduct(ing);
+    if (lastP) prop(buyCard, "Last bought", lastP.product + (lastP.size ? " " + lastP.size : ""));
+    ingSheet.appendChild(buyCard);
 
     var m = findMatch(ing);
     if (m) {
       var card = el("div", "pcard");
-      card.appendChild(el("div", "t", "✓ In your kitchen: " + m.name));
-      var lines = [];
-      if (m.size) lines.push("Size: " + m.size);
-      lines.push((FULL_LABEL[m.full] || m.full) + " full · " + (CAT_LABEL[m.cat] || m.cat));
-      if (m.wegmans) lines.push("Wegmans product: " + m.wegmans);
-      if (m.code) lines.push("Barcode: " + m.code);
-      if (m.exp) lines.push("Best by: " + m.exp);
-      if (m.recipes && m.recipes.length) lines.push("Used in: " + m.recipes.join(", "));
-      lines.forEach(function (t) { card.appendChild(el("div", "l", t)); });
-      if (m.verify) card.appendChild(el("div", null, "⚠️ " + m.verify));
+      card.appendChild(el("div", "t", "✓ In your kitchen"));
+      prop(card, "Item", m.name);
+      prop(card, "Size / unit", m.size);
+      prop(card, "Quantity", "×" + m.qty);
+      prop(card, "Fullness", FULL_LABEL[m.full] || m.full);
+      prop(card, "Location", CAT_LABEL[m.cat] || m.cat);
+      prop(card, "Wegmans product", m.wegmans);
+      prop(card, "Barcode", m.code ? m.code : (m.nobarcode ? "no barcode (produce/homemade)" : "not scanned yet"), !m.code && !m.nobarcode);
+      prop(card, "Best by", m.exp);
+      prop(card, "Notes", m.note);
+      prop(card, "Used in", (m.recipes && m.recipes.length) ? m.recipes.join(", ") : null);
+      if (m.verify) prop(card, "⚠️ Check", m.verify, true);
+      var acts = el("div", "acts");
+      if (m.verify) {
+        var okB = el("button", "btn primary", "Looks right ✓");
+        okB.onclick = function () { delete m.verify; schedulePush(); renderInventory(); openIngSheet(ing); toast("Verified ✓"); };
+        acts.appendChild(okB);
+      }
+      if (!m.code && !m.nobarcode) {
+        var scanB = el("button", "btn", "📷 Scan its barcode");
+        scanB.onclick = function () { ingOverlay.hidden = true; startAssignScan(m); };
+        var nbB = el("button", "btn", "🚫 Has no barcode");
+        nbB.onclick = function () {
+          m.nobarcode = true;
+          if (m.verify === "scan the barcode to confirm") delete m.verify;
+          schedulePush(); renderInventory(); openIngSheet(ing);
+        };
+        acts.append(scanB, nbB);
+      }
+      if (acts.children.length) card.appendChild(acts);
       ingSheet.appendChild(card);
     } else {
       var linkCard = el("div", "pcard");
