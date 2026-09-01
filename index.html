@@ -214,6 +214,8 @@
   </section>
 
   <section class="tab" id="tab-scan">
+    <button id="fulfill-banner" hidden
+      style="width:100%;margin-bottom:8px;font:inherit;font-weight:600;border:none;border-radius:10px;background:var(--accent);color:var(--accent-ink);padding:10px 12px;cursor:pointer;text-align:left"></button>
     <div class="viewfinder">
       <video id="video" playsinline muted></video>
       <div class="scanline" id="scanline" hidden></div>
@@ -601,7 +603,7 @@
       var b = document.createElement("button");
       b.type = "button"; b.textContent = e.s.name;
       if (e.i === suggested) b.classList.add("on");
-      b.onclick = function () { fulfillShopping(e.i); renderSheetShop(it); };
+      b.onclick = function () { fulfillShopping(e.i, it); renderSheetShop(it); };
       box.appendChild(b);
     });
   }
@@ -667,12 +669,46 @@
     });
     return bestScore >= 1.75 ? best : -1;
   }
-  function fulfillShopping(idx, sourceName) {
+  function fulfillShopping(idx, item) {
     var s = data.shopping[idx];
     if (!s || s.done) return;
     s.done = true; s.scanned = true;
     schedulePush(); renderShopping();
     toast("✓ Crossed off: " + s.name);
+    if (item && (item.code || item.name)) logScannedProduct(s, item);
+  }
+
+  // --- Targeted "scan this shopping item" mode ---
+  var fulfillTarget = null;
+  var fulfillBanner = document.getElementById("fulfill-banner");
+  fulfillBanner.onclick = clearFulfillTarget;
+  function startFulfillScan(idx) {
+    fulfillTarget = idx;
+    fulfillBanner.hidden = false;
+    fulfillBanner.textContent = "📷 Scanning for: " + data.shopping[idx].name + " — tap to cancel";
+    var scanBtn = document.querySelector('nav button[data-tab="scan"]');
+    if (scanBtn) scanBtn.click();
+  }
+  function clearFulfillTarget() {
+    fulfillTarget = null;
+    fulfillBanner.hidden = true;
+  }
+
+  function logScannedProduct(entry, item) {
+    var append = function () {
+      var key = entry.name.toLowerCase();
+      var m = /^for (.+?)(?:\s+—.*)?$/.exec(entry.reason || "");
+      var rec = { product: item.name || ("code " + item.code),
+        date: new Date().toISOString().slice(0, 10) };
+      if (item.size) rec.size = item.size;
+      if (item.code) rec.code = item.code;
+      if (m) rec.recipe = m[1];
+      products[key] = products[key] || [];
+      products[key].push(rec);
+      return saveProducts();
+    };
+    if (productsSha === null) loadProducts().then(append);
+    else append();
   }
 
   var shopList = document.getElementById("shop-list");
@@ -694,9 +730,19 @@
       x.setAttribute("aria-label", "Remove " + s.name + " from shopping list");
       x.onclick = function () {
         data.shopping.splice(idx, 1);
+        if (fulfillTarget === idx) clearFulfillTarget();
         schedulePush(); renderShopping();
       };
-      el.append(cb, body, x);
+      if (!s.done) {
+        var sc = document.createElement("button");
+        sc.className = "shop-x"; sc.textContent = "📷";
+        sc.style.fontSize = "17px";
+        sc.setAttribute("aria-label", "Scan the bought " + s.name);
+        sc.onclick = function () { startFulfillScan(idx); };
+        el.append(cb, body, sc, x);
+      } else {
+        el.append(cb, body, x);
+      }
       shopList.appendChild(el);
     });
   }
@@ -1244,12 +1290,17 @@
     if (codeVal === lastCode && now - lastAt < 2500) return;
     lastCode = codeVal; lastAt = now;
     if (navigator.vibrate) { try { navigator.vibrate(60); } catch (e) {} }
+    var target = fulfillTarget;
+    var targetEntry = (target !== null) ? data.shopping[target] : null;
     var existing = data.items.find(function (it) { return it.code === codeVal; });
     if (existing) {
       existing.qty++;
       toast((existing.name || codeVal) + " ×" + existing.qty);
-      var me = matchShopping(existing.name);
-      if (me !== -1) fulfillShopping(me);
+      if (targetEntry) { fulfillShopping(target, existing); clearFulfillTarget(); }
+      else {
+        var me = matchShopping(existing.name);
+        if (me !== -1) fulfillShopping(me);
+      }
       schedulePush(); renderAll();
       return;
     }
@@ -1264,13 +1315,29 @@
         if (!it.name) it.name = info.name;
         if (info.size) it.size = info.size;
         it._found = true;
-        var mi = matchShopping(it.name);
-        if (mi !== -1) fulfillShopping(mi);
+        if (targetEntry) {
+          // bind this scan to the chosen shopping entry, with the resolved product info
+          if (!targetEntry.done) { targetEntry.done = true; targetEntry.scanned = true; renderShopping(); toast("✓ Crossed off: " + targetEntry.name); }
+          logScannedProduct(targetEntry, it);
+        } else {
+          var mi = matchShopping(it.name);
+          if (mi !== -1) fulfillShopping(mi);
+        }
         schedulePush(); renderAll();
         if (sheetItem === it) renderSheetShop(it);
-      } else { it._found = false; }
+      } else {
+        it._found = false;
+        if (targetEntry) {
+          // no database hit — still bind the barcode to the entry and name the item from it
+          if (!it.name) { it.name = targetEntry.name; schedulePush(); renderAll(); }
+          if (!targetEntry.done) { targetEntry.done = true; targetEntry.scanned = true; renderShopping(); toast("✓ Crossed off: " + targetEntry.name); }
+          logScannedProduct(targetEntry, it);
+          if (sheetItem === it) { dName.value = it.name; renderSheetShop(it); }
+        }
+      }
       updateSheetLookup(it);
     });
+    if (targetEntry) clearFulfillTarget();
   }
 
   var video = document.getElementById("video");
