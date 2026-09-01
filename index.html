@@ -344,6 +344,10 @@
       <label class="lbl" for="d-exp">Expiration / best-by (optional)</label>
       <input type="date" id="d-exp">
     </div>
+    <div id="d-shop-wrap" hidden>
+      <label class="lbl">Bought from the shopping list? Tap to cross off</label>
+      <div class="chips" id="d-shop"></div>
+    </div>
     <div class="actions">
       <button class="btn rm" id="d-usedup">Used up 🛒</button>
       <button class="btn rm" id="d-remove">Remove</button>
@@ -584,6 +588,24 @@
     else dLookup.textContent = it.code ? "Barcode " + it.code : "";
   }
 
+  function renderSheetShop(it) {
+    var wrap = document.getElementById("d-shop-wrap");
+    var box = document.getElementById("d-shop");
+    var open = data.shopping.map(function (s, i) { return { s: s, i: i }; })
+      .filter(function (e) { return !e.s.done; });
+    if (!open.length) { wrap.hidden = true; return; }
+    wrap.hidden = false;
+    box.innerHTML = "";
+    var suggested = matchShopping(it.name || "");
+    open.forEach(function (e) {
+      var b = document.createElement("button");
+      b.type = "button"; b.textContent = e.s.name;
+      if (e.i === suggested) b.classList.add("on");
+      b.onclick = function () { fulfillShopping(e.i); renderSheetShop(it); };
+      box.appendChild(b);
+    });
+  }
+
   function openSheet(it) {
     sheetItem = it;
     dName.value = it.name || "";
@@ -591,6 +613,7 @@
     dExp.value = it.exp || "";
     chipRow(dFull, FULLNESS, FULL_LABEL, function () { return it.full; }, function (v) { it.full = v; });
     chipRow(dCat, CATS, CAT_LABEL, function () { return it.cat; }, function (v) { it.cat = v; });
+    renderSheetShop(it);
     updateSheetLookup(it);
     overlay.hidden = false;
   }
@@ -623,6 +646,34 @@
   document.getElementById("d-plus").onclick = function () {
     if (sheetItem) { sheetItem.qty++; dQty.textContent = sheetItem.qty; schedulePush(); renderInventory(); }
   };
+
+  // --- Matching scans to shopping-list entries ---
+  var STOPWORDS = { "wegmans": 1, "organic": 1, "fresh": 1, "classics": 1, "classic": 1,
+    "italian": 1, "style": 1, "with": 1, "pack": 1, "tube": 1, "pint": 1, "quart": 1,
+    "large": 1, "small": 1, "whole": 1, "sliced": 1, "thin": 1, "fully": 1, "cooked": 1 };
+  function sigWords(s) {
+    return (s || "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/)
+      .filter(function (w) { return w.length >= 4 && !STOPWORDS[w]; });
+  }
+  function matchShopping(name) {
+    var nw = sigWords(name);
+    if (!nw.length) return -1;
+    var best = -1, bestScore = 0;
+    data.shopping.forEach(function (s, i) {
+      if (s.done) return;
+      var overlap = sigWords(s.name).filter(function (w) { return nw.indexOf(w) !== -1; });
+      var score = overlap.length + (overlap.some(function (w) { return w.length >= 6; }) ? 0.75 : 0);
+      if (score > bestScore) { bestScore = score; best = i; }
+    });
+    return bestScore >= 1.75 ? best : -1;
+  }
+  function fulfillShopping(idx, sourceName) {
+    var s = data.shopping[idx];
+    if (!s || s.done) return;
+    s.done = true; s.scanned = true;
+    schedulePush(); renderShopping();
+    toast("✓ Crossed off: " + s.name);
+  }
 
   var shopList = document.getElementById("shop-list");
   function renderShopping() {
@@ -665,6 +716,7 @@
     var bought = data.shopping.filter(function (s) { return s.done; });
     if (!bought.length) return;
     bought.forEach(function (s) {
+      if (s.scanned) return; // scan already added the real product to inventory
       var existing = data.items.find(function (it) {
         return (it.name || "").toLowerCase() === s.name.toLowerCase();
       });
@@ -1196,6 +1248,8 @@
     if (existing) {
       existing.qty++;
       toast((existing.name || codeVal) + " ×" + existing.qty);
+      var me = matchShopping(existing.name);
+      if (me !== -1) fulfillShopping(me);
       schedulePush(); renderAll();
       return;
     }
@@ -1210,7 +1264,10 @@
         if (!it.name) it.name = info.name;
         if (info.size) it.size = info.size;
         it._found = true;
+        var mi = matchShopping(it.name);
+        if (mi !== -1) fulfillShopping(mi);
         schedulePush(); renderAll();
+        if (sheetItem === it) renderSheetShop(it);
       } else { it._found = false; }
       updateSheetLookup(it);
     });
