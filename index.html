@@ -725,7 +725,7 @@
             var m = document.createElement("div"); m.className = "m";
             m.textContent = [r.serves ? "serves " + r.serves : "", r.time || ""].filter(Boolean).join(" · ");
             el.append(t, m);
-            el.onclick = function () { openRecipe(r); };
+            el.onclick = function () { openRecipe(r, f.path); };
             list.appendChild(el);
           }).catch(function () {});
         });
@@ -749,8 +749,10 @@
     return (hist && hist.length) ? hist[hist.length - 1] : null;
   }
 
-  function openRecipe(r) {
+  var currentRecipePath = null;
+  function openRecipe(r, path) {
     currentRecipe = r;
+    currentRecipePath = path || null;
     document.getElementById("recipe-list").hidden = true;
     document.getElementById("recipe-view").hidden = false;
     renderRecipe();
@@ -847,6 +849,31 @@
     if (r.yield) { body.appendChild(el("div", "rsec", "Yield")); body.appendChild(el("div", "meta", r.yield)); }
     if (r.reheat) { body.appendChild(el("div", "rsec", "Reheating")); body.appendChild(el("div", "meta", r.reheat)); }
     if (r.scaling) { body.appendChild(el("div", "rsec", "Scaling")); body.appendChild(el("div", "meta", r.scaling)); }
+
+    if (currentRecipePath) {
+      var delBtn = el("button", "btn rm", "🗑 Delete this recipe");
+      delBtn.style.width = "100%"; delBtn.style.marginTop = "16px";
+      delBtn.onclick = function () {
+        if (!confirm("Delete \"" + r.title + "\" for good? This removes it from the shared repo.")) return;
+        delBtn.disabled = true; delBtn.textContent = "Deleting…";
+        fetch(API + "/repos/" + REPO + "/contents/" + currentRecipePath + "?ref=" + encodeURIComponent(BRANCH) + "&t=" + Date.now(),
+          { headers: ghHeaders(), cache: "no-store" })
+          .then(function (resp) { return resp.json(); })
+          .then(function (j) { return ghDelete(currentRecipePath, j.sha, "app: delete recipe " + (r.slug || r.title)); })
+          .then(function (resp) {
+            if (!resp.ok) throw new Error("HTTP " + resp.status);
+            toast("Recipe deleted");
+            document.getElementById("recipe-view").hidden = true;
+            document.getElementById("recipe-list").hidden = false;
+            recipesLoaded = false; loadRecipes();
+          })
+          .catch(function (e) {
+            delBtn.disabled = false; delBtn.textContent = "🗑 Delete this recipe";
+            toast("Delete failed — try again");
+          });
+      };
+      body.appendChild(delBtn);
+    }
 
     body.appendChild(el("div", "rsec", "Ask Claude"));
     var aiBtn = el("button", "btn", "🤖 Which exact products should I buy / use?");
