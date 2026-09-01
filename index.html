@@ -1012,34 +1012,65 @@
     });
   };
 
+  var reqLoadGen = 0;
+  function ghDelete(path, sha, message) {
+    return fetch(API + "/repos/" + REPO + "/contents/" + path, {
+      method: "DELETE", headers: ghHeaders(),
+      body: JSON.stringify({ message: message, sha: sha, branch: BRANCH })
+    });
+  }
+  function dismissRequest(q, sha) {
+    ghDelete("requests/" + q.id + ".json", sha, "app: dismiss request " + q.id)
+      .then(function () {
+        var chain = Promise.resolve();
+        (q.files || []).forEach(function (p) {
+          chain = chain.then(function () {
+            return fetch(API + "/repos/" + REPO + "/contents/" + p + "?ref=" + encodeURIComponent(BRANCH), { headers: ghHeaders() })
+              .then(function (r) { return r.ok ? r.json() : null; })
+              .then(function (j) { if (j) return ghDelete(p, j.sha, "app: dismiss request file"); });
+          });
+        });
+        return chain;
+      })
+      .then(function () { loadRequests(); });
+  }
   function loadRequests() {
     var box = document.getElementById("req-pending");
     if (!token) { box.innerHTML = ""; return; }
-    fetch(API + "/repos/" + REPO + "/contents/requests?ref=" + encodeURIComponent(BRANCH), { headers: ghHeaders() })
+    var gen = ++reqLoadGen;
+    fetch(API + "/repos/" + REPO + "/contents/requests?ref=" + encodeURIComponent(BRANCH) + "&t=" + Date.now(),
+      { headers: ghHeaders(), cache: "no-store" })
       .then(function (r) { return r.ok ? r.json() : []; })
       .then(function (files) {
-        box.innerHTML = "";
         var reqs = (files || []).filter(function (f) { return f.name.endsWith(".json"); });
-        if (!reqs.length) return;
-        reqs.forEach(function (f) {
-          ghGetJson(f.path).then(function (res) {
-            var q = res.obj;
-            var row = document.createElement("div");
-            row.className = "ing " + (q.status === "done" ? "have" : "need");
-            var top = document.createElement("div"); top.className = "top";
-            var mark = document.createElement("span"); mark.className = "mark";
-            mark.textContent = q.status === "done" ? "✓" : "⏳";
-            var nm = document.createElement("span"); nm.className = "nm";
-            nm.textContent = (q.title || q.type) + " — " + q.status;
-            top.append(mark, nm);
-            row.appendChild(top);
-            if (q.response) {
-              var sub = document.createElement("div"); sub.className = "sub";
-              sub.textContent = q.response;
-              row.appendChild(sub);
-            }
-            box.appendChild(row);
-          }).catch(function () {});
+        return Promise.all(reqs.map(function (f) {
+          return ghGetJson(f.path).then(function (res) { return res; }).catch(function () { return null; });
+        }));
+      })
+      .then(function (results) {
+        if (gen !== reqLoadGen) return; // a newer load superseded this one
+        box.innerHTML = "";
+        results.filter(Boolean).forEach(function (res) {
+          var q = res.obj;
+          var row = document.createElement("div");
+          row.className = "ing " + (q.status === "done" ? "have" : "need");
+          var top = document.createElement("div"); top.className = "top";
+          var mark = document.createElement("span"); mark.className = "mark";
+          mark.textContent = q.status === "done" ? "✓" : (q.status === "needs-info" ? "❓" : "⏳");
+          var nm = document.createElement("span"); nm.className = "nm";
+          nm.textContent = (q.title || q.type) + " — " + q.status;
+          var x = document.createElement("button");
+          x.className = "shop-x"; x.textContent = "✕";
+          x.setAttribute("aria-label", "Dismiss request");
+          x.onclick = function () { row.remove(); dismissRequest(q, res.sha); };
+          top.append(mark, nm, x);
+          row.appendChild(top);
+          if (q.response) {
+            var sub = document.createElement("div"); sub.className = "sub";
+            sub.textContent = q.response;
+            row.appendChild(sub);
+          }
+          box.appendChild(row);
         });
       })
       .catch(function () {});
