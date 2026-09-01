@@ -459,7 +459,9 @@
   }
   chip.onclick = function () { if (dirty) push(); else pull(); };
   document.addEventListener("visibilitychange", function () {
-    if (!document.hidden && !dirty) pull();
+    if (document.hidden) return;
+    if (!dirty) pull();
+    loadRequests();
   });
 
   var navBtns = document.querySelectorAll("nav button");
@@ -1039,7 +1041,7 @@
     });
   };
 
-  var reqLoadGen = 0;
+  var reqLoadGen = 0, reqPollTimer = null, reqStatuses = {};
   function ghDelete(path, sha, message) {
     return fetch(API + "/repos/" + REPO + "/contents/" + path, {
       method: "DELETE", headers: ghHeaders(),
@@ -1077,8 +1079,12 @@
       .then(function (results) {
         if (gen !== reqLoadGen) return; // a newer load superseded this one
         box.innerHTML = "";
+        var anyPending = false, finishedNow = null;
         results.filter(Boolean).forEach(function (res) {
           var q = res.obj;
+          if (q.status === "pending") anyPending = true;
+          if (reqStatuses[q.id] === "pending" && q.status !== "pending") finishedNow = q;
+          reqStatuses[q.id] = q.status;
           var row = document.createElement("div");
           row.className = "ing " + (q.status === "done" ? "have" : "need");
           var top = document.createElement("div"); top.className = "top";
@@ -1099,8 +1105,24 @@
           }
           box.appendChild(row);
         });
+        if (finishedNow) {
+          if (navigator.vibrate) { try { navigator.vibrate([60, 60, 60]); } catch (e) {} }
+          toast("✓ " + (finishedNow.title || "Request") + " is ready");
+          recipesLoaded = false;
+          loadRecipes();
+        }
+        scheduleReqPoll(anyPending);
       })
-      .catch(function () {});
+      .catch(function () { scheduleReqPoll(true); });
+  }
+
+  function scheduleReqPoll(anyPending) {
+    clearTimeout(reqPollTimer);
+    if (!anyPending) return;
+    reqPollTimer = setTimeout(function () {
+      if (!document.hidden) loadRequests();
+      else scheduleReqPoll(true); // keep the loop alive while backgrounded
+    }, 15000);
   }
 
   var aiKeyInput = document.getElementById("ai-key");
@@ -1321,7 +1343,7 @@
 
   function renderAll() { renderInventory(); renderShopping(); }
   renderAll();
-  if (token) pull(); else setChip("no token — see Setup", "err");
+  if (token) { pull(); loadRequests(); } else setChip("no token — see Setup", "err");
 })();
 </script>
 </body>
