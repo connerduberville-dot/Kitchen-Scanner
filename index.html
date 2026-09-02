@@ -990,15 +990,32 @@
       .catch(function () { list.innerHTML = '<div class="empty">Couldn\'t load recipes.</div>'; });
   }
 
+  // A keyword must begin at a word boundary ("egg" must not match "Parmigiano-Reggiano"),
+  // and when several items match, the most specific one wins ("butter" prefers
+  // "Wegmans Unsalted Butter" over "Skrewball Peanut Butter Whiskey").
+  function kwScore(name, kw) {
+    var n = (name || "").toLowerCase(), k = kw.toLowerCase();
+    var idx = n.indexOf(k);
+    while (idx !== -1) {
+      var before = idx === 0 ? " " : n.charAt(idx - 1);
+      if (!/[a-z0-9]/.test(before)) return k.length / n.length;
+      idx = n.indexOf(k, idx + 1);
+    }
+    return 0;
+  }
   function findMatch(ing) {
     var kws = ing.match || [ing.item.toLowerCase()];
-    for (var i = 0; i < data.items.length; i++) {
-      var nm = (data.items[i].name || "").toLowerCase();
-      for (var k = 0; k < kws.length; k++) {
-        if (nm.indexOf(kws[k].toLowerCase()) !== -1) return data.items[i];
-      }
-    }
-    return null;
+    var best = null, bestScore = 0;
+    data.items.forEach(function (it) {
+      kws.forEach(function (kw, ki) {
+        var s = kwScore(it.name, kw);
+        if (s > 0) {
+          s += (kws.length - ki) * 0.001; // earlier keywords are the preferred ones
+          if (s > bestScore) { bestScore = s; best = it; }
+        }
+      });
+    });
+    return best;
   }
 
   function lastProduct(ing) {
