@@ -695,9 +695,10 @@
     }).join(" ").trim();
     return "https://shop.wegmans.com/shop/search?search_term=" + encodeURIComponent(q);
   }
-  function wegmansLink(name, label) {
+  function wegmansLink(name, label, url) {
     var a = document.createElement("a");
-    a.className = "wlink"; a.href = wegmansUrl(name);
+    a.className = "wlink"; a.href = url || wegmansUrl(name);
+    if (!url) a.title = "No exact product saved — opens a Wegmans search";
     a.target = "_blank"; a.rel = "noopener";
     a.textContent = label || "🟠 Wegmans";
     a.onclick = function (e) { e.stopPropagation(); };
@@ -724,7 +725,8 @@
     if (it.code) prof.push("Barcode " + it.code);
     document.getElementById("d-profile").textContent = prof.join(" · ");
     var dw = document.getElementById("d-wegmans-link");
-    dw.href = wegmansUrl(it.wegmans || it.name);
+    dw.href = it.url || wegmansUrl(it.wegmans || it.name);
+    dw.textContent = it.url ? "🟠 Open product in Wegmans app →" : "🟠 Search Wegmans app →";
     updateSheetLookup(it);
     overlay.hidden = false;
   }
@@ -903,7 +905,7 @@
       var nm = document.createElement("div"); nm.textContent = s.name;
       body.appendChild(nm);
       if (s.reason) { var r = document.createElement("div"); r.className = "reason"; r.textContent = s.reason; body.appendChild(r); }
-      if (!s.done) body.appendChild(wegmansLink(s.name, "🟠 Open in Wegmans →"));
+      if (!s.done) body.appendChild(wegmansLink(s.name, s.url ? "🟠 Open product in Wegmans →" : "🟠 Search Wegmans →", s.url));
       var x = document.createElement("button");
       x.className = "shop-x"; x.textContent = "✕";
       x.setAttribute("aria-label", "Remove " + s.name + " from shopping list");
@@ -1106,7 +1108,7 @@
           return lp2 ? lp2.product + (lp2.size ? " " + lp2.size : "") : null;
         })();
         if (buyTxt) row.appendChild(el("div", "sub", "buy: " + buyTxt));
-        row.appendChild(wegmansLink(buyTxt || ing.item, "🟠 Open in Wegmans →"));
+        row.appendChild(wegmansLink(buyTxt || ing.item, ing.url ? "🟠 Open product in Wegmans →" : "🟠 Search Wegmans →", ing.url));
         if (ing.sub) {
           var chips = el("div", "chips"); chips.style.marginTop = "6px";
           var renderChoice = function () {
@@ -1134,7 +1136,7 @@
             var n = s.name.toLowerCase();
             return n === want || n === ing.item.toLowerCase();
           });
-          if (!dup) { data.shopping.push({ name: ing.buy || ing.item, reason: "for " + r.title }); added++; }
+          if (!dup) { var se = { name: ing.buy || ing.item, reason: "for " + r.title }; if (ing.url) se.url = ing.url; data.shopping.push(se); added++; }
         });
         if (added) { schedulePush(); renderShopping(); }
         toast((added ? "Added " + added : "Nothing new") +
@@ -1298,7 +1300,7 @@
     if (ing.sub) prop(buyCard, "Substitute", ing.sub);
     var lastP = lastProduct(ing);
     if (lastP) prop(buyCard, "Last bought", lastP.product + (lastP.size ? " " + lastP.size : ""));
-    var wl = wegmansLink(ing.buy || (lastP && lastP.product) || ing.item, "🟠 Open in Wegmans app →");
+    var wl = wegmansLink(ing.buy || (lastP && lastP.product) || ing.item, ing.url ? "🟠 Open product in Wegmans app →" : "🟠 Search Wegmans app →", ing.url);
     wl.classList.add("big"); buyCard.appendChild(wl);
     ingSheet.appendChild(buyCard);
 
