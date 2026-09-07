@@ -181,6 +181,8 @@
     display: flex; flex-direction: column; gap: 10px; max-height: 86vh; overflow-y: auto;
   }
   #ing-sheet h3 { margin: 0; font-size: 17px; }
+  .wlink { color: var(--accent); font-weight: 600; text-decoration: none; font-size: 13px; white-space: nowrap; }
+  .wlink.big { display: block; text-align: center; padding: 10px; border: 1px solid var(--accent); border-radius: 10px; margin-top: 8px; font-size: 14px; }
   .pcard {
     background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
     padding: 10px 12px; font-size: 13.5px;
@@ -399,6 +401,7 @@
       <button class="btn primary" id="d-verify-ok" style="width:100%">Looks right ✓</button>
     </div>
     <div class="muted" id="d-profile" style="font-size:12.5px"></div>
+    <a id="d-wegmans-link" class="wlink big" href="#" target="_blank" rel="noopener">🟠 Open in Wegmans app →</a>
     <div class="actions">
       <button class="btn rm" id="d-usedup">Used up 🛒</button>
       <button class="btn rm" id="d-remove">Remove</button>
@@ -684,6 +687,20 @@
     });
   }
 
+  // Wegmans app/site search for a product name. shop.wegmans.com links open in the
+  // Wegmans app when it's installed (Android app links), otherwise the web store.
+  function wegmansUrl(name) {
+    var q = (name || "").replace(/\s*[—(].*$/, "").replace(/,\s*[\d.]+\s*(oz|lb|fl oz|ml|l|g|ct|pk|pack)\b.*$/i, "").trim();
+    return "https://shop.wegmans.com/shop/search?search_term=" + encodeURIComponent(q);
+  }
+  function wegmansLink(name, label) {
+    var a = document.createElement("a");
+    a.className = "wlink"; a.href = wegmansUrl(name);
+    a.target = "_blank"; a.rel = "noopener";
+    a.textContent = label || "🟠 Wegmans";
+    a.onclick = function (e) { e.stopPropagation(); };
+    return a;
+  }
   function openSheet(it) {
     sheetItem = it;
     sheetShopSel = null; sheetShopTouched = false;
@@ -704,6 +721,8 @@
     if (it.recipes && it.recipes.length) prof.push("Used in: " + it.recipes.join(", "));
     if (it.code) prof.push("Barcode " + it.code);
     document.getElementById("d-profile").textContent = prof.join(" · ");
+    var dw = document.getElementById("d-wegmans-link");
+    dw.href = wegmansUrl(it.wegmans || it.name);
     updateSheetLookup(it);
     overlay.hidden = false;
   }
@@ -882,16 +901,7 @@
       var nm = document.createElement("div"); nm.textContent = s.name;
       body.appendChild(nm);
       if (s.reason) { var r = document.createElement("div"); r.className = "reason"; r.textContent = s.reason; body.appendChild(r); }
-      if (!s.done) {
-        var wl = document.createElement("a");
-        wl.className = "reason";
-        wl.style.cssText = "color:var(--accent);font-weight:600;text-decoration:none;display:inline-block;margin-top:2px";
-        wl.href = "https://shop.wegmans.com/search?search_term=" + encodeURIComponent(s.name.replace(/\s*[—(-].*$/, ""));
-        wl.target = "_blank"; wl.rel = "noopener";
-        wl.textContent = "Find at Wegmans →";
-        wl.onclick = function (e) { e.stopPropagation(); };
-        body.appendChild(wl);
-      }
+      if (!s.done) body.appendChild(wegmansLink(s.name, "🟠 Open in Wegmans →"));
       var x = document.createElement("button");
       x.className = "shop-x"; x.textContent = "✕";
       x.setAttribute("aria-label", "Remove " + s.name + " from shopping list");
@@ -1094,6 +1104,7 @@
           return lp2 ? lp2.product + (lp2.size ? " " + lp2.size : "") : null;
         })();
         if (buyTxt) row.appendChild(el("div", "sub", "buy: " + buyTxt));
+        row.appendChild(wegmansLink(buyTxt || ing.item, "🟠 Open in Wegmans →"));
         if (ing.sub) {
           var chips = el("div", "chips"); chips.style.marginTop = "6px";
           var renderChoice = function () {
@@ -1285,6 +1296,8 @@
     if (ing.sub) prop(buyCard, "Substitute", ing.sub);
     var lastP = lastProduct(ing);
     if (lastP) prop(buyCard, "Last bought", lastP.product + (lastP.size ? " " + lastP.size : ""));
+    var wl = wegmansLink(ing.buy || (lastP && lastP.product) || ing.item, "🟠 Open in Wegmans app →");
+    wl.classList.add("big"); buyCard.appendChild(wl);
     ingSheet.appendChild(buyCard);
 
     var m = findMatch(ing);
