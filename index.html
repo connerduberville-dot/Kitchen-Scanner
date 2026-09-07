@@ -690,7 +690,9 @@
   // Wegmans app/site search for a product name. shop.wegmans.com links open in the
   // Wegmans app when it's installed (Android app links), otherwise the web store.
   function wegmansUrl(name) {
-    var q = (name || "").replace(/\s*[—(].*$/, "").replace(/,\s*[\d.]+\s*(oz|lb|fl oz|ml|l|g|ct|pk|pack)\b.*$/i, "").trim();
+    var q = (name || "").replace(/\s*[—(].*$/, "").split(/,\s*/).filter(function (seg, i) {
+      return i === 0 || !/\d|^avg\b|^pack\b/i.test(seg); // drop size segments like "1.66 oz", "avg 1.78 lb pack"
+    }).join(" ").trim();
     return "https://shop.wegmans.com/shop/search?search_term=" + encodeURIComponent(q);
   }
   function wegmansLink(name, label) {
