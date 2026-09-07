@@ -499,7 +499,7 @@
     if (!token || pushing || !dirty) return;
     pushing = true; setChip("saving…", "dirty");
     data.updated = new Date().toISOString().slice(0, 10);
-    var content = b64encode(JSON.stringify(data, null, 2) + "\n");
+    var content = b64encode(JSON.stringify(data, function (k, v) { return k.charAt(0) === "_" ? undefined : v; }, 2) + "\n");
     doPut(content).then(function (r) {
       if (r.status === 409 || r.status === 422) {
         return fetch(API + "/repos/" + REPO + "/contents/" + DATA_PATH + "?ref=" + encodeURIComponent(BRANCH) + "&t=" + Date.now(),
@@ -901,7 +901,7 @@
 
   function logScannedProduct(entry, item) {
     var append = function () {
-      var key = entry.name.toLowerCase();
+      var key = (entry.ing || entry.name).toLowerCase();
       var m = /^for (.+?)(?:\s+—.*)?$/.exec(entry.reason || "");
       var rec = { product: item.name || ("code " + item.code),
         date: new Date().toISOString().slice(0, 10) };
@@ -1161,7 +1161,7 @@
             var n = s.name.toLowerCase();
             return n === want || n === ing.item.toLowerCase();
           });
-          if (!dup) { var se = { name: ing.buy || ing.item, reason: "for " + r.title }; if (ing.url) se.url = ing.url; data.shopping.push(se); added++; }
+          if (!dup) { var se = { name: ing.buy || ing.item, reason: "for " + r.title, ing: ing.item }; if (ing.url) se.url = ing.url; data.shopping.push(se); added++; }
         });
         if (added) { schedulePush(); renderShopping(); }
         toast((added ? "Added " + added : "Nothing new") +
