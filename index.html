@@ -882,6 +882,16 @@
       var nm = document.createElement("div"); nm.textContent = s.name;
       body.appendChild(nm);
       if (s.reason) { var r = document.createElement("div"); r.className = "reason"; r.textContent = s.reason; body.appendChild(r); }
+      if (!s.done) {
+        var wl = document.createElement("a");
+        wl.className = "reason";
+        wl.style.cssText = "color:var(--accent);font-weight:600;text-decoration:none;display:inline-block;margin-top:2px";
+        wl.href = "https://shop.wegmans.com/search?search_term=" + encodeURIComponent(s.name.replace(/\s*[—(-].*$/, ""));
+        wl.target = "_blank"; wl.rel = "noopener";
+        wl.textContent = "Find at Wegmans →";
+        wl.onclick = function (e) { e.stopPropagation(); };
+        body.appendChild(wl);
+      }
       var x = document.createElement("button");
       x.className = "shop-x"; x.textContent = "✕";
       x.setAttribute("aria-label", "Remove " + s.name + " from shopping list");
