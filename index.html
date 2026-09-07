@@ -689,20 +689,45 @@
 
   // Wegmans app/site search for a product name. shop.wegmans.com links open in the
   // Wegmans app when it's installed (Android app links), otherwise the web store.
-  function wegmansUrl(name) {
-    var q = (name || "").replace(/\s*[—(].*$/, "").split(/,\s*/).filter(function (seg, i) {
+  function wegmansSearchTerm(name) {
+    return (name || "").replace(/\s*[—(].*$/, "").split(/,\s*/).filter(function (seg, i) {
       return i === 0 || !/\d|^avg\b|^pack\b/i.test(seg); // drop size segments like "1.66 oz", "avg 1.78 lb pack"
     }).join(" ").trim();
-    return "https://shop.wegmans.com/shop/search?search_term=" + encodeURIComponent(q);
+  }
+  function wegmansUrl(name) {
+    return "https://www.wegmans.com/shop/search?search_term=" + encodeURIComponent(wegmansSearchTerm(name));
+  }
+  // The Wegmans Android app claims wegmans.com links but drops the product path
+  // (lands on a blank search), so on Android we force the link open in Chrome,
+  // where the real product page loads and Add to Cart works with the same login.
+  var IS_ANDROID = /android/i.test(navigator.userAgent);
+  function browserHref(url) {
+    if (!IS_ANDROID) return url;
+    var m = url.match(/^https:\/\/([^/]+)(\/.*)?$/);
+    if (!m) return url;
+    return "intent://" + m[1] + (m[2] || "") + "#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=" + encodeURIComponent(url) + ";end";
   }
   function wegmansLink(name, label, url) {
+    var wrap = document.createElement("span");
+    wrap.style.cssText = "display:inline-flex;gap:10px;align-items:center;flex-wrap:wrap";
     var a = document.createElement("a");
-    a.className = "wlink"; a.href = url || wegmansUrl(name);
+    a.className = "wlink"; a.href = browserHref(url || wegmansUrl(name));
     if (!url) a.title = "No exact product saved — opens a Wegmans search";
     a.target = "_blank"; a.rel = "noopener";
     a.textContent = label || "🟠 Wegmans";
     a.onclick = function (e) { e.stopPropagation(); };
-    return a;
+    wrap.appendChild(a);
+    var q = wegmansSearchTerm(name);
+    var c = document.createElement("button");
+    c.type = "button"; c.className = "wlink"; c.style.cssText = "background:none;border:1px solid var(--border);border-radius:8px;padding:3px 8px";
+    c.textContent = "📋 Copy name";
+    c.title = "Copy the product name to paste into the Wegmans app search";
+    c.onclick = function (e) {
+      e.stopPropagation(); e.preventDefault();
+      try { navigator.clipboard.writeText(q).then(function () { c.textContent = "✓ Copied"; setTimeout(function () { c.textContent = "📋 Copy name"; }, 1500); }); } catch (_) { window.prompt("Copy this:", q); }
+    };
+    wrap.appendChild(c);
+    return wrap;
   }
   function openSheet(it) {
     sheetItem = it;
@@ -725,8 +750,8 @@
     if (it.code) prof.push("Barcode " + it.code);
     document.getElementById("d-profile").textContent = prof.join(" · ");
     var dw = document.getElementById("d-wegmans-link");
-    dw.href = it.url || wegmansUrl(it.wegmans || it.name);
-    dw.textContent = it.url ? "🟠 Open product in Wegmans app →" : "🟠 Search Wegmans app →";
+    dw.href = browserHref(it.url || wegmansUrl(it.wegmans || it.name));
+    dw.textContent = it.url ? "🟠 Open product at Wegmans →" : "🟠 Search Wegmans →";
     updateSheetLookup(it);
     overlay.hidden = false;
   }
@@ -1300,8 +1325,8 @@
     if (ing.sub) prop(buyCard, "Substitute", ing.sub);
     var lastP = lastProduct(ing);
     if (lastP) prop(buyCard, "Last bought", lastP.product + (lastP.size ? " " + lastP.size : ""));
-    var wl = wegmansLink(ing.buy || (lastP && lastP.product) || ing.item, ing.url ? "🟠 Open product in Wegmans app →" : "🟠 Search Wegmans app →", ing.url);
-    wl.classList.add("big"); buyCard.appendChild(wl);
+    var wl = wegmansLink(ing.buy || (lastP && lastP.product) || ing.item, ing.url ? "🟠 Open product at Wegmans →" : "🟠 Search Wegmans →", ing.url);
+    wl.style.cssText = "display:flex;justify-content:center;margin-top:8px"; wl.firstChild.classList.add("big"); wl.firstChild.style.flex = "1"; buyCard.appendChild(wl);
     ingSheet.appendChild(buyCard);
 
     var m = findMatch(ing);
